@@ -6,7 +6,7 @@ Someone just invited you to **Hangout** — a tiny private app for letting frien
 
 **1. Browser path** — open your dashboard from a phone bookmark, set your location, see where friends are. Zero AI accounts needed. Works on any device with a browser. The easiest start. → **Step 1** + **Step 2** below.
 
-**2. Chat path** — open a fresh chat in Claude or ChatGPT, paste a small snippet from your dashboard at the top, and use that chat as your dedicated "Hangout chat." From then on **you never have to leave that chat to use the app** — just say *"I'm at Pershing for 2 hours"* or *"where's sanya?"* and Claude/ChatGPT handles it. Works on any plan, including free tier. *(If you have Claude.ai Pro or ChatGPT Plus, you can put the snippet into a **Project** or **Custom GPT** instead — same idea, cleaner ergonomics: every new chat inside inherits the setup, and Projects sync across devices.)* → **Step 3** below.
+**2. Chat path** — open a fresh chat in Claude or ChatGPT, paste a small snippet from your dashboard at the top, and use that chat as your dedicated "Hangout chat." From then on **you never have to leave that chat to use the app** — just say *"I'm at Pershing for 2 hours"* or *"where's sanya?"* and Claude/ChatGPT handles it. Works on any plan, including free tier. *(If you have Claude.ai Pro or ChatGPT Plus, you can put the snippet into a Project or Custom GPT instead — same idea, cleaner ergonomics: every new chat inside inherits the setup, and Projects sync across devices.)* → **Step 3** below.
 
 The two paths aren't either-or — you can use both, and many people will: bookmark for a quick tap when you just want to see the map, chat for natural-language *"hey where is everyone?"* moments. Pick whichever fits your day; you don't have to commit.
 
@@ -85,7 +85,7 @@ The fix is to keep Hangout in its own scoped place. You have three options:
 
 | Option | Plan needed | How |
 |---|---|---|
-| **Dedicated chat** (simplest, works for everyone) | any (incl. free tier) | Open a fresh chat in Claude or ChatGPT, paste the snippet as your first message, then *only return to that one chat* when you want to use Hangout. Bookmark or pin it so you can find it again. |
+| **Dedicated chat** (simplest, works for everyone) | any (incl. free tier) | Open a fresh chat in Claude or ChatGPT, paste the snippet as your first message. Bookmark or pin that chat so you can return to it easily. (You can also paste the snippet into a different chat later — each chat with the snippet at the top works for that conversation; pinning just saves the copy-paste.) |
 | **Project / Custom GPT** (cleaner) | Claude.ai Pro $20/mo, or ChatGPT Plus $20/mo | Paste the snippet into a Claude **Project**'s custom instructions, or a ChatGPT **Custom GPT**'s instructions. Every new chat inside inherits the setup automatically; syncs across web, desktop, and mobile. |
 | **Slash command** (developers) | Claude Code (CLI), any plan | A `~/.claude/commands/hangout.md` file — see [Advanced — Claude Code](#advanced--claude-code-developers-only) at the bottom. |
 

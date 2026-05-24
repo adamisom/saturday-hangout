@@ -126,7 +126,7 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 - **Expiry at read time, no cron.** `activeLocation()` returns null for expired entries. Saves a scheduled trigger; expired entries just sit in KV until overwritten on next `set`.
 - **List-scan for friends.** Dashboard renders by listing all `user:*` keys and filtering visible ones. O(N) per dashboard view, fine up to a few hundred users. If we ever grow past that, add a `subscribers:<username>` reverse index.
 - **No frontend framework.** Pages are server-rendered HTML strings. The dashboard form posts via plain `<form action="/set" method="get">` — no JavaScript executes in the browser. Friends with JS disabled (rare but possible) still get a working app.
-- **Single file.** At ~640 lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Revisit if it crosses ~1000.
+- **Single file.** At ~700 lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Revisit if it crosses ~1000.
 
 ## Operations
 

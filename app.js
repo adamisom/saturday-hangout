@@ -172,6 +172,10 @@ Fetch (GET):
 # My own state
   ${base}/me?u=${username}&t=${token}
 
+# Full user-facing docs (for anything not covered above)
+For allowlist management, timezone changes, account deletion, troubleshooting, the bookmark-vs-chat path comparison, etc. — read or fetch:
+  https://github.com/adamisom/saturday-hangout/blob/main/for-friends.md
+
 URL-encode the place. Hours can be a decimal (e.g. 1.5). Tell me what the endpoint returned.
 `;
 }
