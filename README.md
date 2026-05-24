@@ -1,0 +1,135 @@
+# Hangout
+
+Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~400 lines.
+
+You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or anyone, if you flip public mode — can see it. Update and read from a browser, from Claude on web/phone, or from `curl`. That's it.
+
+(The repo is named `saturday-hangout` as a nod to "Saturday Build" — the day it was built — but the app itself is day-agnostic.)
+
+## Architecture
+
+One Cloudflare Worker (`src/worker.js`), one KV namespace (`STATE`), no client-side JS, no framework, no build step. Server-rendered HTML for the dashboard, plain-text GET API for everything else (so Claude / ChatGPT can drive it with just their web-fetch tool).
+
+For the request-flow diagram, module breakdown, data model, and design tradeoffs, see [docs/architecture.md](docs/architecture.md).
+
+## Prerequisites
+
+- **Node.js** (any version ≥18; you already have it if `node --version` works).
+- **A free Cloudflare account.** Sign up at [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up) — email + password, no credit card required. Verify the email, skip any prompts to "add a site." The free tier (100k requests/day, 1k KV writes/day) easily covers this app.
+
+## Setup
+
+```sh
+cd ~/dev/saturday-hangout
+npm install
+```
+
+### 1. Log in to Cloudflare
+
+```sh
+npx wrangler login
+```
+
+Opens a browser; authorize. Free Cloudflare account is fine.
+
+### 2. Create the KV namespace
+
+```sh
+npx wrangler kv namespace create STATE
+```
+
+Copy the `id = "..."` it prints, paste it into `wrangler.toml` replacing `REPLACE_WITH_KV_NAMESPACE_ID`.
+
+### 3. Set the bootstrap secret
+
+This is the one-time secret you'll use to create the very first user (yourself). Pick a random string.
+
+```sh
+npx wrangler secret put BOOTSTRAP_SECRET
+# (paste a random string when prompted, e.g. `openssl rand -hex 16`)
+```
+
+### 4. Deploy
+
+```sh
+npx wrangler deploy
+```
+
+Wrangler prints the URL: `https://saturday-hangout.<your-account>.workers.dev`. Save this — it's your base URL.
+
+### 5. Create your account
+
+Visit (replacing `YOUR_SECRET` and using your base URL):
+
+```
+https://saturday-hangout.<your-account>.workers.dev/bootstrap?s=YOUR_SECRET&u=adam
+```
+
+It returns your username + token. **Save the token** — it's your password. Open the dashboard URL it gives you.
+
+### 6. Invite friends
+
+From the dashboard, click **Generate invite link** → send the URL to a friend. They pick a username, get their own token, and you're both auto-allowlisted to see each other.
+
+## Token rotation
+
+A friend lost their bookmark or screenshot of their token? Mint them a new one:
+
+```sh
+curl "https://<your-worker>/rotate?s=YOUR_BOOTSTRAP_SECRET&u=<their-username>"
+```
+
+The endpoint prints a fresh token and a new `/dashboard?u=…&t=…` URL. Send that URL to them — they can re-bookmark it. The old token immediately stops working.
+
+Only the worker owner (you, the holder of `BOOTSTRAP_SECRET`) can call `/rotate`, so you're the recovery authority for everyone you invited. There's no email-based reset — that's the deliberate tradeoff for keeping the data model schema-free.
+
+**Tell friends at signup:** save the dashboard URL to a password manager, notes app, or send-it-to-yourself email *as well as* bookmarking it. The bookmark is convenient; the second copy is the safety net.
+
+## Connect a chat assistant (Claude / ChatGPT)
+
+On the dashboard, click **Open Claude setup snippet** to get your personal paste-in.
+
+For per-surface setup (Claude Code, Claude Desktop, Claude.ai web, Claude.ai mobile, ChatGPT Plus, ChatGPT Free) — including a 4-step manual validation checklist for each — see [docs/clients.md](docs/clients.md).
+
+Quick version: any assistant that can fetch arbitrary URLs works. Claude Code is the most reliable surface (free tier, deterministic WebFetch). Claude.ai Pro and ChatGPT Plus both work cleanly via Projects / Custom GPTs.
+
+## Local dev
+
+```sh
+npm run dev
+```
+
+Runs on `http://localhost:8787` with a local KV store. Use `?s=anything&u=adam` against your local bootstrap — wrangler reads `BOOTSTRAP_SECRET` from `.dev.vars` if you create one:
+
+```sh
+echo 'BOOTSTRAP_SECRET=dev-secret' > .dev.vars
+```
+
+## Endpoints
+
+All GET. Plain-text responses except HTML pages.
+
+| Endpoint | Purpose |
+|---|---|
+| `/` | Landing + login form |
+| `/dashboard?u=&t=` | HTML dashboard |
+| `/set?u=&t=&loc=&hours=` | Set my location |
+| `/clear?u=&t=` | Clear my location |
+| `/me?u=&t=` | My current state |
+| `/u/<name>?as=&t=` | View someone's location (or public) |
+| `/allow?u=&t=&friend=` | Add to my allowlist |
+| `/disallow?u=&t=&friend=` | Remove from my allowlist |
+| `/public?u=&t=&on=1\|0` | Toggle public mode |
+| `/invite?u=&t=` | Generate single-use invite link |
+| `/join?invite=` | Friend's signup page |
+| `/signup?invite=&u=` | Claim a username |
+| `/claude?u=&t=` | Claude Project snippet (plain text) |
+| `/bootstrap?s=&u=` | One-time admin user creation |
+| `/rotate?s=&u=` | Admin token rotation (recovery) |
+
+## Notes
+
+- Locations auto-expire (default 2h, max 24h). Expiry is checked at read time, no cron.
+- Allowlist is one-way: if Adam allowlists Michael, Michael can see Adam — not vice versa unless Michael also allowlists Adam. Invite signup auto-allowlists both ways.
+- KV is eventually consistent; in practice updates show up in <1s for everyone.
+- Token-in-URL means tokens appear in Cloudflare's access logs. Fine for a friends app; don't reuse the token anywhere else.
