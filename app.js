@@ -203,7 +203,7 @@ export default {
       if (path === '/tz') return setTz(env, q);
       if (path === '/invite') return makeInvite(env, q, base);
       if (path === '/join') return joinPage(env, q);
-      if (path === '/signup') return signup(env, q);
+      if (path === '/signup') return signup(env, q, base);
       if (path === '/claude') return claudeInstructions(env, q, base);
       if (path === '/bootstrap') return bootstrap(env, q);
       if (path === '/rotate') return rotateToken(env, q);
@@ -522,8 +522,29 @@ async function makeInvite(env, q, base) {
     <p>Send this to your friend:</p>
     <pre>${escapeHtml(url)}</pre>
     <p class="small">Single-use. Expires ${escapeHtml(expiryDate)} (7 days from now).</p>
-    <p><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(q.get('t'))}">Back to dashboard</a></p>
+    <p><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(q.get('t'))}">Go to Dashboard</a></p>
   `);
+}
+
+// Renders the join/signup form. Used by /join (fresh load) and by /signup when
+// username validation fails — so users see the error inline with the input
+// pre-filled, instead of a plain-text error page that requires hitting Back.
+function joinForm(code, inviterName, opts = {}) {
+  const { error = null, prefillName = '' } = opts;
+  const errorBlock = error
+    ? `<p style="color: #c00; margin: 0.75rem 0;"><strong>${escapeHtml(error)}</strong></p>`
+    : '';
+  return `
+    <h1>Join Hangout</h1>
+    <p>Invited by <strong>${escapeHtml(inviterName)}</strong>.</p>
+    ${errorBlock}
+    <form action="/signup" method="get">
+      <input type="hidden" name="invite" value="${escapeHtml(code)}">
+      <label>Pick a username (3–20 chars, lowercase letters/digits/dashes)</label>
+      <input type="text" name="u" required pattern="[a-z0-9-]{3,20}" value="${escapeHtml(prefillName)}" autofocus>
+      <p><button>Claim it</button></p>
+    </form>
+  `;
 }
 
 async function joinPage(env, q) {
@@ -536,26 +557,18 @@ async function joinPage(env, q) {
   if (inv.expiresAt && new Date(inv.expiresAt).getTime() <= Date.now()) {
     return html('<h1>This invite has expired.</h1><p>Ask the sender to generate a new one.</p>', 410);
   }
-  return html(`
-    <h1>Join Hangout</h1>
-    <p>Invited by <strong>${escapeHtml(inv.from)}</strong>.</p>
-    <form action="/signup" method="get">
-      <input type="hidden" name="invite" value="${escapeHtml(code)}">
-      <label>Pick a username (3–20 chars, lowercase letters/digits/dashes)</label>
-      <input type="text" name="u" required pattern="[a-z0-9-]{3,20}">
-      <p><button>Claim it</button></p>
-    </form>
-  `);
+  return html(joinForm(code, inv.from));
 }
 
 // On signup, the new user and the inviter automatically allow each other —
 // otherwise they couldn't see each other's locations until both clicked through
 // the allowlist UI. Either can revoke later.
-async function signup(env, q) {
+async function signup(env, q, base) {
   const code = q.get('invite');
   const name = (q.get('u') || '').toLowerCase().trim();
   if (!code) return err('Missing invite.');
-  if (!validUsername(name)) return err('Invalid username (3–20 lowercase chars/digits/dashes, not reserved).');
+  // Fetch the invite up front so username-related errors below can re-render the
+  // join form (which needs inv.from to say "Invited by X").
   const raw = await env.STATE.get(`invite:${code}`);
   if (!raw) return err('Invalid invite code.', 404);
   const inv = JSON.parse(raw);
@@ -563,7 +576,28 @@ async function signup(env, q) {
   if (inv.expiresAt && new Date(inv.expiresAt).getTime() <= Date.now()) {
     return err('Invite has expired.', 410);
   }
-  if (await getUser(env, name)) return err('Username already taken.');
+  if (!validUsername(name)) {
+    return html(joinForm(code, inv.from, {
+      error: 'Invalid username — must be 3–20 lowercase letters/digits/dashes, and not a reserved word.',
+      prefillName: name,
+    }), 400);
+  }
+  if (await getUser(env, name)) {
+    // Suggest the first available `${name}<n>` for n in 2..5. Cheap: usually 1 KV
+    // read since the first candidate is typically free in a small friend group.
+    let suggestion = null;
+    for (let i = 2; i <= 5; i++) {
+      const candidate = `${name}${i}`;
+      if (validUsername(candidate) && !(await getUser(env, candidate))) {
+        suggestion = candidate;
+        break;
+      }
+    }
+    return html(joinForm(code, inv.from, {
+      error: `Username already taken.${suggestion ? ` Try "${suggestion}" instead.` : ''}`,
+      prefillName: suggestion || name,
+    }), 400);
+  }
 
   const token = genToken();
   const newUser = {
@@ -590,16 +624,16 @@ async function signup(env, q) {
 
   return html(`
     <h1>Welcome, ${escapeHtml(name)}!</h1>
-    <p>Your username: <strong>${escapeHtml(name)}</strong></p>
-    <p>Your token (this is your password — save it):</p>
-    <pre>${escapeHtml(token)}</pre>
     <p>You and <strong>${escapeHtml(inv.from)}</strong> can now see each other.</p>
-    <p><a class="btn" href="/dashboard?u=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}"><button>Open dashboard</button></a></p>
+
+    <p>Your dashboard URL:</p>
+    <pre>${base}/dashboard?u=${escapeHtml(name)}&t=${escapeHtml(token)}</pre>
+
+    <p><a class="btn" href="/dashboard?u=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}"><button>Go to Dashboard</button></a></p>
+
     <hr>
-    <h2>Connect Claude (web or phone)</h2>
-    <p>Open a Claude Project, paste the snippet from
-       <a href="/claude?u=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}">this page</a>
-       into the project's custom instructions. Then ask Claude "where is ${escapeHtml(inv.from)}?" or "I'm at &lt;place&gt; for 2 hours."</p>
+    <p class="small">First time? Read <a href="https://github.com/adamisom/saturday-hangout/blob/main/for-friends.md" target="_blank" rel="noopener noreferrer">for-friends.md</a> — covers saving your URL, phone home-screen, the optional Claude/ChatGPT chat path, and troubleshooting.</p>
+    <p class="small">Or jump straight to: <a href="/claude?u=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}" target="_blank" rel="noopener noreferrer">get your Claude/ChatGPT setup snippet</a> (your token is pre-filled).</p>
   `);
 }
 
@@ -633,7 +667,7 @@ async function claudeInstructions(env, q, base) {
       <button id="copy-btn" onclick="copySnippet()">Copy snippet</button>
     </p>
     <pre id="snippet">${escapeHtml(snippet)}</pre>
-    <p class="small"><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(t)}">Back to dashboard</a></p>
+    <p class="small"><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(t)}">Go to Dashboard</a></p>
     <script>
       function copySnippet() {
         var text = document.getElementById('snippet').innerText;

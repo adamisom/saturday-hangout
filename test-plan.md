@@ -52,7 +52,18 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 - [ ] **1.6** Visit `BASE/dashboard?u=adam&t=WRONG`.
   Expect: "Invalid login" page (HTTP 401).
 - [ ] **1.7** Visit `BASE/dashboard?u=adam&t=<ADAM_TOKEN>`.
-  Expect: dashboard with "Hi, adam", "No active location", placeholder "Pershing Cafe", empty allowlist, empty friends, plus a "Go silent" section, a "Settings" section showing `Timezone: America/Chicago`, and a `/delete` hint. The page auto-refreshes every 60s. **Bookmark this URL right now.**
+  Expect: dashboard with "Hi, adam" and the following sections **in this order**:
+  - **Where I am** — "No active location" + form with placeholder "Pershing Cafe"
+  - **Friends** — empty
+  - **Allowlist (who can see me)** — empty
+  - **Invite a friend** — "Generate invite link" button
+  - **Public mode** — currently OFF
+  - **Go silent**
+  - **Connect Claude / ChatGPT (optional, one-time)**
+  - **Settings** — `Timezone: America/Chicago`
+  - **Delete account** — clickable "Delete account…" button (don't click it)
+  
+  The page auto-refreshes every 60s. **Bookmark this URL right now.**
 
 ### Set / read own location
 
@@ -98,13 +109,20 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 - [ ] **2.3** In **Browser B**, open `INVITE_URL`.
   Expect: "Join Hangout" page saying "Invited by **adam**".
 - [ ] **2.4** Type `adam` as username → submit.
-  Expect: `Error: Username already taken.`
+  Expect: **the join form re-renders in place** (URL stays at `/signup`, no back-button needed) with a red error: `Username already taken. Try "adam2" instead.` The username input is pre-filled with `adam2` so you can just hit Submit again to accept the suggestion. (Server suggests the first available `${name}<n>` for n in 2..5; falls back to plain "Username already taken." if no candidate is free in that range.)
 - [ ] **2.5** Type `admin` → submit.
-  Expect: `Error: Invalid username...`
+  Expect: the join form re-renders in place with a red error: `Invalid username — must be 3–20 lowercase letters/digits/dashes, and not a reserved word.` Username input is pre-filled with `admin` for editing.
 - [ ] **2.6** Type `Sanya` (capital S) → submit.
   Expect: the HTML pattern `[a-z0-9-]{3,20}` blocks submission in modern browsers; if your browser allows it, the server lowercases on `signup()` and it works as `sanya`. (Test confirms case-handling.)
 - [ ] **2.7** Type `sanya` → submit.
-  Expect: "Welcome, sanya!" page. **Record token as `SANYA_TOKEN`.**
+  Expect: **Welcome page** with:
+  - H1: "Welcome, sanya!"
+  - One line: "You and **adam** can now see each other."
+  - "Your dashboard URL:" with the full URL in a `<pre>` block (this URL contains the token; it's what to save)
+  - **"Go to Dashboard"** button
+  - Small-text footer: link to `for-friends.md` on GitHub and link to "get your Claude/ChatGPT setup snippet" — both `target="_blank"` (open in new tab)
+  
+  **Record the token** (it's the `t=` value inside the URL) as `SANYA_TOKEN`.
 
 ### Sanya opens her dashboard
 
@@ -256,6 +274,11 @@ This proves KV state survives Worker re-deploys (it does — KV is the storage l
 - [ ] **7.19** Set location with an emoji `Pershing 🌮`.
   Expect: works; URL-encoded and decoded round-trip preserves it.
 
+### Newline / control-whitespace strip
+
+- [ ] **7.20** `BASE/set?u=adam&t=<ADAM_TOKEN>&loc=Hello%0AWorld&hours=1` (newline embedded in loc).
+  Expect: server replaces `\r\n\t` with single spaces → `OK. Location set: Hello World (1h, ...)`. Then `/me` shows `Location: Hello World ...` on a single line — `/me`'s 5-line contract holds, so any line-based reader (Claude via WebFetch, etc.) parses correctly.
+
 ---
 
 ## Phase 9 — New endpoints (silent / tz / delete / invite expiry)
@@ -303,6 +326,8 @@ These cover the gap-fix endpoints added in commit 3.
       Expect: `This will permanently delete the account "throwaway". To confirm, re-run with &confirm=yes appended.` (HTTP 400)
 - [ ] **9.17** `BASE/delete?u=throwaway&t=<THROWAWAY_TOKEN>&confirm=yes`.
       Expect: `Account "throwaway" deleted. Your token is no longer valid.`
+      
+      *Equivalent UI path:* the dashboard's **"Delete account…"** button (bottom section) opens a JS `confirm()` dialog with the warning text; clicking OK navigates to this same URL with `&confirm=yes` appended. Server response is identical.
 - [ ] **9.18** `BASE/me?u=throwaway&t=<THROWAWAY_TOKEN>` → 401 Invalid token.
 - [ ] **9.19** `/me` for adam → **allowlist no longer contains `throwaway`** (cascade verified).
 
@@ -324,6 +349,34 @@ The unified-error fix means an attacker can't tell which usernames exist by hitt
       `curl "$BASE/disallow?u=sanya&t=<SANYA_TOKEN>&friend=adam"`
       Then `BASE/u/sanya?as=adam&t=<ADAM_TOKEN>`.
       Expect: HTTP 403, body `sanya's location is not shared with you.` — **exact same shape as 9.23 modulo the username**, so a probe can't distinguish "no such user" from "user exists but not visible." Restore with `curl "$BASE/allow?u=sanya&t=<SANYA_TOKEN>&friend=adam"` after.
+
+### /claude page (HTML + Copy button)
+
+- [ ] **9.25** Visit `BASE/claude?u=adam&t=<ADAM_TOKEN>`.
+  Expect: **HTML page** (not plain text). H1: "Connect Hangout to Claude or ChatGPT". Lede paragraph mentions "Paste this snippet **once**... Works on any plan, including free tier." A **Copy snippet** button is visible above a `<pre id="snippet">` block containing the snippet.
+- [ ] **9.26** Click **Copy snippet**.
+  Expect: button text changes to "Copied!" for ~2 seconds, then reverts to "Copy snippet". Paste into any text field — should be the full snippet (~30 lines starting with "You are connected to adam's Hangout app.") including the line linking to `for-friends.md` on GitHub.
+- [ ] **9.27** Footer link reads **"Go to Dashboard"** (not "Back to dashboard"). Clicking returns to `/dashboard`.
+
+### Invite-display footer wording
+
+- [ ] **9.28** From the dashboard, click "Generate invite link." On the resulting page, the footer link reads **"Go to Dashboard"** (not "Back to dashboard").
+
+### Invite chain cap (3 hops)
+
+The cap (`MAX_INVITE_DEPTH = 3` in `app.js`) prevents transitive trust from growing without bound: owner (depth 0) → invitee → invitee → invitee (depth 3, cannot invite further).
+
+- [ ] **9.29** Adam (depth 0) generates an invite. Inspect the invite record:
+      `npx wrangler kv key get --binding STATE "invite:<code>"`
+      Expect: JSON includes `"inviterDepth":0`.
+- [ ] **9.30** Sign up a throwaway user via that invite, then inspect the new user record:
+      `npx wrangler kv key get --binding STATE "user:throwaway"`
+      Expect: JSON includes `"depth":1`.
+- [ ] **9.31** (Optional, requires KV edit.) Set throwaway's depth to 3:
+      Read → modify `depth` → write back with `npx wrangler kv key put --binding STATE "user:throwaway" '<json>'`. Then `BASE/invite?u=throwaway&t=<TOK>`.
+      Expect: HTTP 403, `Error: Invite chain limit reached: your invitees would be 4 hops from the worker owner (max 3). Ask someone closer in the chain to invite your friend instead.`
+      
+      *Full-chain alternative:* build adam → A → B → C through 3 sequential signups, then have C try to invite. Same expected error. Heavy for a manual pass — code-reviewed instead.
 
 ---
 

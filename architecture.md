@@ -56,8 +56,8 @@ Everything is in [app.js](app.js). The file is small enough that "module" really
 | **Identity** | Token generation, username validation, Claude snippet builder. | `genToken()`, `genInvite()`, `validUsername()`, `claudeSnippet()` |
 | **Time** | ISO + clock formatting (per-user tz); relative-time strings; expiry check. | `nowIso()`, `fmtRelative()`, `fmtClock()`, `activeLocation()` |
 | **Storage adapter** | The only place that talks to KV. Wraps JSON serialization + token check. | `getUser()`, `putUser()`, `authUser()` |
-| **HTML pages** | Server-rendered pages: landing, dashboard, invite display, join form, signup confirmation. | `landing()`, `dashboard()`, `makeInvite()`, `joinPage()`, `signup()` |
-| **API handlers** | One per endpoint. All return plain text. | `setLocation()`, `clearLocation()`, `showMe()`, `viewUser()`, `allow()`, `disallow()`, `setPublic()`, `goSilent()`, `setTz()`, `deleteAccount()`, `claudeInstructions()` |
+| **HTML pages** | Server-rendered pages: landing, dashboard, invite display, join form, signup confirmation, Claude/ChatGPT snippet. | `landing()`, `dashboard()`, `makeInvite()`, `joinPage()`, `joinForm()`, `signup()`, `claudeInstructions()` |
+| **API handlers** | One per endpoint. All return plain text. | `setLocation()`, `clearLocation()`, `showMe()`, `viewUser()`, `allow()`, `disallow()`, `setPublic()`, `goSilent()`, `setTz()`, `deleteAccount()` |
 | **Admin** | First-user creation and token rotation, guarded by `BOOTSTRAP_SECRET`. | `bootstrap()`, `rotateToken()` |
 
 The storage adapter is the load-bearing abstraction — every other module flows through it. If we ever swap KV for D1 / SQLite / Durable Objects, only this module changes.
@@ -127,7 +127,7 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 - **List-scan for friends.** Dashboard renders by listing all `user:*` keys and filtering visible ones. O(N) per dashboard view, fine up to a few hundred users. If we ever grow past that, add a `subscribers:<username>` reverse index.
 - **No frontend framework.** Pages are server-rendered HTML strings. The dashboard form posts via plain `<form action="/set" method="get">` — no JavaScript executes in the browser. Friends with JS disabled (rare but possible) still get a working app.
 - **Invite chain cap (`MAX_INVITE_DEPTH = 3`).** Each user record carries a `depth` field — 0 for the bootstrap user, +1 per invite hop. `makeInvite` refuses if the inviter is at the cap. Without this, transitive trust grows without bound: any friend can invite anyone, who can invite anyone, etc. The cap doesn't replace "trust your friends" — it limits blast radius if one of them is careless. Inviter's depth is snapshotted into the invite record at creation time, so signup works even if the inviter is deleted between invite creation and use.
-- **Single file.** At ~700 lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Revisit if it crosses ~1000.
+- **Single file.** At ~750 lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Revisit if it crosses ~1000.
 
 ## Operations
 

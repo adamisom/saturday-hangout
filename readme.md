@@ -1,6 +1,6 @@
 # Hangout
 
-Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~700 lines.
+Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~750 lines.
 
 You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or anyone, if you flip public mode — can see it. Update and read from a browser, from Claude on web/phone, or from `curl`. That's it.
 
