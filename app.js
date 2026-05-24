@@ -8,6 +8,9 @@ const RESERVED = new Set([
   'rotate', 'delete', 'silent', 'tz',
 ]);
 
+// Caps transitive trust: 0 = worker owner; each invite hop adds 1.
+const MAX_INVITE_DEPTH = 3;
+
 const HTML_HEAD = `<!doctype html>
 <html lang="en">
 <head>
@@ -494,14 +497,20 @@ async function setTz(env, q) {
 }
 
 // Invites carry a 7-day expiry so stale links can't be redeemed months later.
+// They also snapshot the inviter's depth so signup can compute the new user's
+// depth even if the inviter is deleted between invite creation and use.
 async function makeInvite(env, q, base) {
   const u = (q.get('u') || '').toLowerCase();
   const user = await authUser(env, u, q.get('t'));
   if (!user) return err('Invalid token.', 401);
+  const depth = user.depth ?? 0;
+  if (depth >= MAX_INVITE_DEPTH) {
+    return err(`Invite chain limit reached: your invitees would be ${depth + 1} hops from the worker owner (max ${MAX_INVITE_DEPTH}). Ask someone closer in the chain to invite your friend instead.`, 403);
+  }
   const code = genInvite();
   const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
   await env.STATE.put(`invite:${code}`, JSON.stringify({
-    from: u, used: false, createdAt: nowIso(), expiresAt,
+    from: u, inviterDepth: depth, used: false, createdAt: nowIso(), expiresAt,
   }));
   const url = `${base}/join?invite=${code}`;
   const tz = user.tz || 'America/Chicago';
@@ -563,6 +572,7 @@ async function signup(env, q) {
     public: false,
     location: null,
     tz: 'America/Chicago',
+    depth: (inv.inviterDepth ?? 0) + 1,
     createdAt: nowIso(),
   };
   await putUser(env, name, newUser);
@@ -661,7 +671,7 @@ async function bootstrap(env, q) {
   const token = genToken();
   await putUser(env, name, {
     token, allowlist: [], public: false, location: null,
-    tz: 'America/Chicago', createdAt: nowIso(),
+    tz: 'America/Chicago', depth: 0, createdAt: nowIso(),
   });
   return text(`User created.\nUsername: ${name}\nToken: ${token}\n\nSave the token — it's your password. Open: /dashboard?u=${name}&t=${token}\n`);
 }

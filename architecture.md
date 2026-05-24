@@ -126,6 +126,7 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 - **Expiry at read time, no cron.** `activeLocation()` returns null for expired entries. Saves a scheduled trigger; expired entries just sit in KV until overwritten on next `set`.
 - **List-scan for friends.** Dashboard renders by listing all `user:*` keys and filtering visible ones. O(N) per dashboard view, fine up to a few hundred users. If we ever grow past that, add a `subscribers:<username>` reverse index.
 - **No frontend framework.** Pages are server-rendered HTML strings. The dashboard form posts via plain `<form action="/set" method="get">` — no JavaScript executes in the browser. Friends with JS disabled (rare but possible) still get a working app.
+- **Invite chain cap (`MAX_INVITE_DEPTH = 3`).** Each user record carries a `depth` field — 0 for the bootstrap user, +1 per invite hop. `makeInvite` refuses if the inviter is at the cap. Without this, transitive trust grows without bound: any friend can invite anyone, who can invite anyone, etc. The cap doesn't replace "trust your friends" — it limits blast radius if one of them is careless. Inviter's depth is snapshotted into the invite record at creation time, so signup works even if the inviter is deleted between invite creation and use.
 - **Single file.** At ~700 lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Revisit if it crosses ~1000.
 
 ## Operations

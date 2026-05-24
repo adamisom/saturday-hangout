@@ -138,3 +138,4 @@ All GET. Plain-text responses except HTML pages.
 - The dashboard auto-refreshes every 60 seconds so friends' updates appear without a manual reload.
 - KV is eventually consistent; in practice updates show up in <1s for everyone.
 - Token-in-URL means tokens appear in Cloudflare's access logs. Fine for a friends app; don't reuse the token anywhere else.
+- **Invite chain is capped at 3 hops.** The worker owner is depth 0; each invite hop adds 1. A user at depth 3 (worker owner → invitee → invitee → invitee) cannot generate further invites. This caps transitive trust — if a friend invites a friend who invites a bot, the bot can't recruit more bots.
