@@ -134,3 +134,58 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 - **KV inspection:** `npx wrangler kv key list --binding STATE` lists keys; `npx wrangler kv key get --binding STATE user:adam` reads a value.
 - **Token rotation:** if a friend loses their bookmark or a token leaks, hit `/rotate?s=<BOOTSTRAP_SECRET>&u=<name>` — it mints a fresh token and prints the new dashboard URL. See [readme → Token rotation](readme.md#token-rotation).
 - **Backup:** KV doesn't auto-backup. For this app it's not worth a job — the entire DB can be dumped via `kv key list` + a loop, and the loss of "friends' current location after a CF disaster" is fine. If you'd rather have a daily snapshot, that's ~15 lines added to a scheduled Worker trigger.
+
+## Future work: end-to-end encryption
+
+**Trigger:** a friend expresses concern that the worker owner can read their data, or you want to truthfully tell a new invitee "no, I can't see your locations."
+
+### What admin can read today
+
+[for-friends.md](for-friends.md) discloses that the worker owner can read everything — via raw KV (`wrangler kv key get`), `/rotate` (mints any user's token), and tokens in `wrangler tail`. You own the Cloudflare account, so the data and the keys both live where you have access. This is fine for the current "friends, not adversaries" model, but a non-starter once a friend wants a cryptographic answer instead of a social one.
+
+### Primitive: keys in the URL fragment
+
+Browsers never send `#…` to the server. So the dashboard URL becomes `…/dashboard?u=alice&t=TOKEN#sk=PRIVATEKEY`. Logs, KV, and `wrangler tail` see only the query string. About 150 lines of client-side WebCrypto in the dashboard do the encrypt/decrypt. This departs from the current "no JS in the browser" rule — server-rendered HTML still works for everything except the location string itself.
+
+*Multi-device:* the key lives in the URL, not on the device. Friends sync phone + laptop the same way they sync today's token URL — password manager, email-to-self. No per-device enrollment. If we later want device-bound keys (passkeys, secure-enclave), `user.pubs` becomes an array of `{device_label, pub}` capped at 3 and senders encrypt to all of them — separate upgrade, only worth it if URL-fragment-as-key starts feeling like a liability.
+
+### Design: per-user X25519 keypairs
+
+This is **real end-to-end encryption**: place names are encrypted in the friend's browser to the recipient's public key, and only the recipient's private key can decrypt. Cloudflare and you-as-admin, in your normal capacity, cannot read them — the plaintext never reaches the server, and the private keys never reach the server.
+
+- Each user gets an X25519 keypair at signup. `user.pub` stored in KV; private key only in the URL fragment.
+- `user.location` becomes `{ recipients: { name: {ct, iv}, ... }, expiresAt }` — sender encrypts the place name once per allowlisted friend (NaCl-style addressed delivery).
+- Recipient's `/u/<sender>` returns just their addressed ciphertext + the sender's pub; recipient decrypts with their private key.
+- Server learns only ciphertexts, IVs, expiry, and the social graph (recipient-map keys are usernames). Place names are opaque.
+
+A friend not in your allowlist has no ciphertext addressed to them in KV — including you-as-admin if a friend doesn't allowlist you. "Admin can see all" stops being structurally true.
+
+### What this costs (besides the dev work)
+
+- **Claude integration goes away.** Claude can't run WebCrypto and can't see fragments. Drop both reads and writes from the snippet; the bookmark path (already documented as the default in `for-friends.md`) becomes the only flow. Net effect: simpler product surface, cleaner privacy story.
+- **Public mode goes away.** Conflicts with addressed-delivery. Replace with allowlist + "Go silent" — already the more-used path.
+- **Modern browsers only.** WebCrypto X25519 needs Chrome 113+, Safari 17+, Firefox 130+. Fine for a 2026 friends app.
+
+### The one residual risk: the JS itself
+
+E2EE protects the data, but the *client code* that does the encryption is downloaded fresh from the worker on every visit. A future admin who deploys malicious JS could exfiltrate keys or plaintext at that point. This is separate from the crypto being correct — and it's the standard wrinkle for any browser-based E2EE (it's why Signal Desktop ships as a binary, not a webpage).
+
+Mitigations, in order of effort:
+
+- **Periodic audit.** A friend reads the deployed worker source before sensitive sessions. Cheap, real, requires discipline.
+- **SRI pinning.** Host the JS bundle at a third-party URL (GitHub Pages, jsDelivr) with a hash committed in the worker. Admin can still serve a different HTML, but a watchful friend would notice the change.
+- **Browser extension.** Distribute the client as a small extension friends install once. Now the admin no longer controls what code runs in the browser — same model as Signal Desktop. Real lift, real guarantee.
+
+For the friend who asks "can you see my data?", the honest answer is: "No — and you can verify by reading the deployed source. The only way I could change that is by shipping malicious code, which is visible in the worker source you can audit, and which SRI or extension distribution can lock down further if you care."
+
+### Endpoints affected
+
+| Endpoint | Change |
+|---|---|
+| `/signup` | Accept browser-generated `pub`; redirect to dashboard URL with `#sk=…` |
+| `/set` | `r=<base64-json-recipients-map>` instead of `loc=<text>` |
+| `/pubkeys?u=&t=` *(new)* | Returns pubs of `u`'s allowlist + their own |
+| `/u/<name>` | Returns `{ct, iv, sender_pub, expiresAt}`; 403 if `as=` not in recipients |
+| `/dashboard`, `/me` | Embed JS bundle, return ciphertexts, render after decrypt |
+| `/rotate` | Also regenerates `pub`; old ciphertexts addressed to friend become unreadable (TTL handles cleanup) |
+| `/claude`, `/public`, `/silent` (public-mode bit) | Delete; remove `claudeSnippet()` |
