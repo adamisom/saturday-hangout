@@ -5,6 +5,7 @@
 const RESERVED = new Set([
   'set', 'clear', 'u', 'allow', 'disallow', 'public', 'signup', 'invite',
   'me', 'friends', 'join', 'dashboard', 'claude', 'bootstrap', 'admin', 'api',
+  'rotate', 'delete', 'silent', 'tz',
 ]);
 
 const HTML_HEAD = `<!doctype html>
@@ -29,6 +30,7 @@ const HTML_HEAD = `<!doctype html>
   .friend .loc { color: #333; }
   .friend .empty { color: #aaa; font-style: italic; }
   pre { background: #f4f4f4; padding: 0.75rem; border-radius: 4px; overflow-x: auto; font-size: 0.85em; white-space: pre-wrap; word-break: break-all; }
+  code { background: #f4f4f4; padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em; }
   .row { display: flex; gap: 0.5rem; align-items: stretch; }
   .row > input { flex: 1; }
   .small { font-size: 0.85em; color: #666; }
@@ -40,8 +42,11 @@ const HTML_HEAD = `<!doctype html>
 
 const HTML_FOOT = `</body></html>`;
 
-function html(body, status = 200) {
-  return new Response(HTML_HEAD + body + HTML_FOOT, {
+function html(body, status = 200, refreshSeconds = 0) {
+  const head = refreshSeconds
+    ? HTML_HEAD.replace('</head>', `<meta http-equiv="refresh" content="${refreshSeconds}"></head>`)
+    : HTML_HEAD;
+  return new Response(head + body + HTML_FOOT, {
     status,
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
@@ -88,12 +93,17 @@ function fmtRelative(iso) {
   return m ? `${h}h ${m}m left` : `${h}h left`;
 }
 
-function fmtClockCT(iso) {
-  return new Date(iso).toLocaleTimeString('en-US', {
-    timeZone: 'America/Chicago',
+function fmtClock(iso, tz) {
+  tz = tz || 'America/Chicago';
+  const time = new Date(iso).toLocaleTimeString('en-US', {
+    timeZone: tz,
     hour: 'numeric',
     minute: '2-digit',
-  }) + ' CT';
+  });
+  const abbr = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(new Date(iso))
+    .find(p => p.type === 'timeZoneName')?.value || tz;
+  return `${time} ${abbr}`;
 }
 
 function validUsername(name) {
@@ -109,6 +119,8 @@ async function putUser(env, username, data) {
   await env.STATE.put(`user:${username}`, JSON.stringify(data));
 }
 
+// Direct token compare — hashing wouldn't help here since the token travels in
+// every URL anyway, so the leak surface is the URL itself, not the stored value.
 async function authUser(env, u, t) {
   if (!u || !t) return null;
   const user = await getUser(env, u);
@@ -154,6 +166,9 @@ Fetch (GET):
   ${base}/public?u=${username}&t=${token}&on=1
   ${base}/public?u=${username}&t=${token}&on=0
 
+# Go silent (clear location + turn public off in one call)
+  ${base}/silent?u=${username}&t=${token}
+
 # My own state
   ${base}/me?u=${username}&t=${token}
 
@@ -177,12 +192,15 @@ export default {
       if (path === '/allow') return allow(env, q);
       if (path === '/disallow') return disallow(env, q);
       if (path === '/public') return setPublic(env, q);
+      if (path === '/silent') return goSilent(env, q);
+      if (path === '/tz') return setTz(env, q);
       if (path === '/invite') return makeInvite(env, q, base);
       if (path === '/join') return joinPage(env, q);
       if (path === '/signup') return signup(env, q);
       if (path === '/claude') return claudeInstructions(env, q, base);
       if (path === '/bootstrap') return bootstrap(env, q);
       if (path === '/rotate') return rotateToken(env, q);
+      if (path === '/delete') return deleteAccount(env, q);
       if (path.startsWith('/u/')) {
         const rest = path.slice(3);
         if (!rest || rest.includes('/')) return text('Not found\n', 404);
@@ -215,10 +233,11 @@ async function dashboard(env, q) {
   const tok = q.get('t');
   const user = await authUser(env, me, tok);
   if (!user) return html('<h1>Invalid login</h1><p><a href="/">Back</a></p>', 401);
+  const tz = user.tz || 'America/Chicago';
 
   const loc = activeLocation(user);
   const locBlock = loc
-    ? `<p><strong>${escapeHtml(loc.text)}</strong> — ${fmtRelative(loc.expiresAt)} (until ${fmtClockCT(loc.expiresAt)})</p>`
+    ? `<p><strong>${escapeHtml(loc.text)}</strong> — ${fmtRelative(loc.expiresAt)} (until ${fmtClock(loc.expiresAt, tz)})</p>`
     : `<p class="small">No active location.</p>`;
 
   // O(N) scan of all users to find ones visible to me. Fine up to a few hundred;
@@ -246,7 +265,7 @@ async function dashboard(env, q) {
       <div class="friend">
         <div class="name">${escapeHtml(f.name)}</div>
         ${f.loc
-          ? `<div class="loc">${escapeHtml(f.loc.text)} <span class="small">(${fmtRelative(f.loc.expiresAt)}, until ${fmtClockCT(f.loc.expiresAt)})</span></div>`
+          ? `<div class="loc">${escapeHtml(f.loc.text)} <span class="small">(${fmtRelative(f.loc.expiresAt)}, until ${fmtClock(f.loc.expiresAt, tz)})</span></div>`
           : `<div class="empty">no location</div>`}
       </div>
     `).join('');
@@ -255,6 +274,7 @@ async function dashboard(env, q) {
     ? (user.allowlist || []).map(n => `${escapeHtml(n)} <a href="/disallow?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&friend=${encodeURIComponent(n)}" class="small">[remove]</a>`).join(', ')
     : '<span class="small">empty</span>';
 
+  // Auto-refresh every 60s so friends' updates show without a manual reload.
   return html(`
     <h1>Hi, ${escapeHtml(me)}</h1>
 
@@ -299,13 +319,35 @@ async function dashboard(env, q) {
     </p>
 
     <hr>
+    <h2>Go silent</h2>
+    <p class="small">Clear location + turn public off in one click.</p>
+    <p>
+      <a class="btn" href="/silent?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}">
+        <button class="secondary">Go silent</button>
+      </a>
+    </p>
+
+    <hr>
     <h2>Invite a friend</h2>
     <p><a class="btn" href="/invite?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}"><button class="secondary">Generate invite link</button></a></p>
 
     <hr>
     <h2>Connect Claude</h2>
     <p><a href="/claude?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}">Open Claude setup snippet</a> — paste into a Claude Project's custom instructions.</p>
-  `);
+
+    <hr>
+    <h2>Settings</h2>
+    <p>Timezone: <strong>${escapeHtml(tz)}</strong></p>
+    <form action="/tz" method="get">
+      <input type="hidden" name="u" value="${escapeHtml(me)}">
+      <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <div class="row">
+        <input type="text" name="tz" placeholder="America/Los_Angeles">
+        <button>Update</button>
+      </div>
+    </form>
+    <p class="small">Delete account: hit <code>/delete?u=&lt;you&gt;&t=&lt;token&gt;&confirm=yes</code>. Permanent — also removes you from everyone's allowlist.</p>
+  `, 200, 60);
 }
 
 // Writes use GET so chat assistants' web-fetch tools (which fire GETs reliably,
@@ -324,7 +366,7 @@ async function setLocation(env, q) {
   const expiresAt = new Date(Date.now() + hours * 3600 * 1000).toISOString();
   user.location = { text: loc, expiresAt };
   await putUser(env, u, user);
-  return text(`OK. Location set: ${loc} (${hours}h, until ${fmtClockCT(expiresAt)}).\n`);
+  return text(`OK. Location set: ${loc} (${hours}h, until ${fmtClock(expiresAt, user.tz)}).\n`);
 }
 
 async function clearLocation(env, q) {
@@ -344,9 +386,10 @@ async function showMe(env, q) {
   const lines = [
     `Username: ${u}`,
     `Public mode: ${user.public ? 'ON' : 'OFF'}`,
+    `Timezone: ${user.tz || 'America/Chicago'}`,
     `Allowlist: ${(user.allowlist || []).join(', ') || '(empty)'}`,
     loc
-      ? `Location: ${loc.text} (${fmtRelative(loc.expiresAt)}, until ${fmtClockCT(loc.expiresAt)})`
+      ? `Location: ${loc.text} (${fmtRelative(loc.expiresAt)}, until ${fmtClock(loc.expiresAt, user.tz)})`
       : `Location: (none)`,
   ];
   return text(lines.join('\n') + '\n');
@@ -354,20 +397,26 @@ async function showMe(env, q) {
 
 async function viewUser(env, target, q) {
   if (!target) return err('Missing target user.');
-  const user = await getUser(env, target);
-  if (!user) return text(`No such user: ${target}\n`, 404);
   const viewer = (q.get('as') || '').toLowerCase();
   const vtoken = q.get('t');
+  // Authenticate the viewer up front — we need their tz for time formatting plus
+  // their identity for the allowlist + self-view checks.
+  const viewerObj = (viewer && vtoken) ? await authUser(env, viewer, vtoken) : null;
+  const user = await getUser(env, target);
+  // Same response whether the user doesn't exist or just isn't visible — keeps a
+  // probe from leaking which usernames are registered.
+  if (!user) return text(`${target}'s location is not shared with you.\n`, 403);
   let allowed = false;
   if (user.public) allowed = true;
-  if (!allowed && viewer && vtoken) {
-    const v = await authUser(env, viewer, vtoken);
-    if (v && (user.allowlist || []).includes(viewer)) allowed = true;
-  }
+  // Self-view: looking up your own location works without needing yourself in
+  // your own allowlist.
+  else if (viewerObj && viewer === target) allowed = true;
+  else if (viewerObj && (user.allowlist || []).includes(viewer)) allowed = true;
   if (!allowed) return text(`${target}'s location is not shared with you.\n`, 403);
+  const tz = viewerObj?.tz || 'America/Chicago';
   const loc = activeLocation(user);
   if (!loc) return text(`${target} has no active location.\n`);
-  return text(`${target} is at ${loc.text} (${fmtRelative(loc.expiresAt)}, until ${fmtClockCT(loc.expiresAt)}).\n`);
+  return text(`${target} is at ${loc.text} (${fmtRelative(loc.expiresAt)}, until ${fmtClock(loc.expiresAt, tz)}).\n`);
 }
 
 async function allow(env, q) {
@@ -402,20 +451,52 @@ async function setPublic(env, q) {
   return text(`OK. Public mode: ${user.public ? 'ON' : 'OFF'}.\n`);
 }
 
+async function goSilent(env, q) {
+  const u = (q.get('u') || '').toLowerCase();
+  const user = await authUser(env, u, q.get('t'));
+  if (!user) return err('Invalid token.', 401);
+  user.location = null;
+  user.public = false;
+  await putUser(env, u, user);
+  return text(`OK. Going silent: location cleared, public mode OFF.\n`);
+}
+
+async function setTz(env, q) {
+  const u = (q.get('u') || '').toLowerCase();
+  const user = await authUser(env, u, q.get('t'));
+  if (!user) return err('Invalid token.', 401);
+  const tz = (q.get('tz') || '').trim();
+  if (!tz) return err('Missing tz. Use an IANA name like America/Los_Angeles.');
+  try {
+    new Intl.DateTimeFormat([], { timeZone: tz });
+  } catch (e) {
+    return err(`Invalid timezone: ${tz}. Use an IANA name like America/Los_Angeles.`);
+  }
+  user.tz = tz;
+  await putUser(env, u, user);
+  return text(`OK. Timezone set to ${tz}.\n`);
+}
+
+// Invites carry a 7-day expiry so stale links can't be redeemed months later.
 async function makeInvite(env, q, base) {
   const u = (q.get('u') || '').toLowerCase();
   const user = await authUser(env, u, q.get('t'));
   if (!user) return err('Invalid token.', 401);
   const code = genInvite();
+  const expiresAt = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
   await env.STATE.put(`invite:${code}`, JSON.stringify({
-    from: u, used: false, createdAt: nowIso(),
+    from: u, used: false, createdAt: nowIso(), expiresAt,
   }));
   const url = `${base}/join?invite=${code}`;
+  const tz = user.tz || 'America/Chicago';
+  const expiryDate = new Date(expiresAt).toLocaleDateString('en-US', {
+    timeZone: tz, month: 'short', day: 'numeric',
+  });
   return html(`
     <h1>Invite link</h1>
     <p>Send this to your friend:</p>
     <pre>${escapeHtml(url)}</pre>
-    <p class="small">Single-use. Expires when claimed.</p>
+    <p class="small">Single-use. Expires ${escapeHtml(expiryDate)} (7 days from now).</p>
     <p><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(q.get('t'))}">Back to dashboard</a></p>
   `);
 }
@@ -427,6 +508,9 @@ async function joinPage(env, q) {
   if (!raw) return html('<h1>Invalid invite code.</h1>', 404);
   const inv = JSON.parse(raw);
   if (inv.used) return html('<h1>This invite has already been used.</h1>', 410);
+  if (inv.expiresAt && new Date(inv.expiresAt).getTime() <= Date.now()) {
+    return html('<h1>This invite has expired.</h1><p>Ask the sender to generate a new one.</p>', 410);
+  }
   return html(`
     <h1>Join Hangout</h1>
     <p>Invited by <strong>${escapeHtml(inv.from)}</strong>.</p>
@@ -439,6 +523,9 @@ async function joinPage(env, q) {
   `);
 }
 
+// On signup, the new user and the inviter automatically allow each other —
+// otherwise they couldn't see each other's locations until both clicked through
+// the allowlist UI. Either can revoke later.
 async function signup(env, q) {
   const code = q.get('invite');
   const name = (q.get('u') || '').toLowerCase().trim();
@@ -448,6 +535,9 @@ async function signup(env, q) {
   if (!raw) return err('Invalid invite code.', 404);
   const inv = JSON.parse(raw);
   if (inv.used) return err('Invite already used.', 410);
+  if (inv.expiresAt && new Date(inv.expiresAt).getTime() <= Date.now()) {
+    return err('Invite has expired.', 410);
+  }
   if (await getUser(env, name)) return err('Username already taken.');
 
   const token = genToken();
@@ -456,6 +546,7 @@ async function signup(env, q) {
     allowlist: [inv.from],
     public: false,
     location: null,
+    tz: 'America/Chicago',
     createdAt: nowIso(),
   };
   await putUser(env, name, newUser);
@@ -493,6 +584,9 @@ async function claudeInstructions(env, q, base) {
   return text(claudeSnippet(base, u, q.get('t')));
 }
 
+// First-user bootstrap. /signup requires an invite, but the very first user has
+// nobody to invite them — so this endpoint mints their account, gated by
+// BOOTSTRAP_SECRET. Run once during deploy; rely on invites after that.
 async function bootstrap(env, q) {
   const secret = q.get('s');
   if (!env.BOOTSTRAP_SECRET) return err('BOOTSTRAP_SECRET not set on the worker.', 500);
@@ -502,14 +596,14 @@ async function bootstrap(env, q) {
   if (await getUser(env, name)) return err('Username already taken.');
   const token = genToken();
   await putUser(env, name, {
-    token, allowlist: [], public: false, location: null, createdAt: nowIso(),
+    token, allowlist: [], public: false, location: null,
+    tz: 'America/Chicago', createdAt: nowIso(),
   });
   return text(`User created.\nUsername: ${name}\nToken: ${token}\n\nSave the token — it's your password. Open: /dashboard?u=${name}&t=${token}\n`);
 }
 
-// Admin recovery path. The worker owner (whoever has BOOTSTRAP_SECRET) mints a
-// fresh token for any user — used when a friend loses their bookmark URL.
-// See README → "Token rotation".
+// Admin recovery: when a friend loses their bookmark, the worker owner (holder
+// of BOOTSTRAP_SECRET) mints them a fresh token via this endpoint.
 async function rotateToken(env, q) {
   const secret = q.get('s');
   if (!env.BOOTSTRAP_SECRET) return err('BOOTSTRAP_SECRET not set on the worker.', 500);
@@ -522,4 +616,28 @@ async function rotateToken(env, q) {
   user.token = newToken;
   await putUser(env, name, user);
   return text(`Token rotated for ${name}.\nNew token: ${newToken}\n\nSend them this URL: /dashboard?u=${name}&t=${newToken}\n`);
+}
+
+// Permanent. Cascades through every other user's allowlist before deleting the
+// record, so dangling references don't accumulate.
+async function deleteAccount(env, q) {
+  const u = (q.get('u') || '').toLowerCase();
+  const user = await authUser(env, u, q.get('t'));
+  if (!user) return err('Invalid token.', 401);
+  if (q.get('confirm') !== 'yes') {
+    return text(`This will permanently delete the account "${u}".\nTo confirm, re-run with &confirm=yes appended.\n`, 400);
+  }
+  const all = await env.STATE.list({ prefix: 'user:' });
+  for (const key of all.keys) {
+    if (key.name === `user:${u}`) continue;
+    const other = JSON.parse(await env.STATE.get(key.name));
+    const before = (other.allowlist || []).length;
+    const after = (other.allowlist || []).filter(x => x !== u);
+    if (after.length !== before) {
+      other.allowlist = after;
+      await env.STATE.put(key.name, JSON.stringify(other));
+    }
+  }
+  await env.STATE.delete(`user:${u}`);
+  return text(`Account "${u}" deleted. Your token is no longer valid.\n`);
 }

@@ -94,6 +94,7 @@ Use the Hangout API. My identity:
 If $ARGUMENTS sounds like a place ("I'm at X for N hours"), fetch /set?u=<me>&t=<tok>&loc=<place>&hours=<n>.
 If $ARGUMENTS is a friend's username, fetch /u/<name>?as=<me>&t=<tok>.
 If $ARGUMENTS is "clear", fetch /clear?u=<me>&t=<tok>.
+If $ARGUMENTS is "silent" or "going silent" or "hide me", fetch /silent?u=<me>&t=<tok>.
 If $ARGUMENTS is "me" or "state", fetch /me?u=<me>&t=<tok>.
 
 Paste the response body back to me verbatim before any commentary.
@@ -195,4 +196,6 @@ That's the whole onboarding.
   - Browser address bar / history if you open dashboard URLs manually
 - **Don't paste your `/claude` snippet anywhere public** — no screenshots of Project custom-instructions, no shared Custom GPTs.
 - **Token rotation** is the recovery path. The worker owner runs `/rotate?s=BOOTSTRAP_SECRET&u=<name>` to mint a fresh token. The old token immediately stops working. See [README → Token rotation](../README.md#token-rotation).
+- **Account deletion** is permanent and cascades — `/delete?u=&t=&confirm=yes` removes you from every other user's allowlist before deleting your record. Your token becomes invalid immediately.
+- **Timezone** is stored per-user (default `America/Chicago`). Update via the dashboard's Settings section or `GET /tz?u=&t=&tz=America/Los_Angeles`. Friends viewing your location see times in their own tz, not yours.
 - **Why no hashing of stored tokens?** Tokens already live in URLs in every request, so hashing the stored value wouldn't change the leak path. We skip the bcrypt ceremony deliberately. See [architecture.md → Design choices](architecture.md#design-choices-and-tradeoffs).

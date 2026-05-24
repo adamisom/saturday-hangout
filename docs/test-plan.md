@@ -164,7 +164,7 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 ### Self-view: `/u/adam` with `?as=adam`
 
 - [ ] **3.14** `BASE/u/adam?as=adam&t=<ADAM_TOKEN>`.
-  Expect: `adam's location is not shared with you.` — interesting: viewing yourself isn't auto-allowed unless you're in your own allowlist. Not a bug; matches the rule "allowlist controls who can see me," and `me` isn't in `my-allowlist` by default. If this bothers you, that's a documented quirk to fix later.
+  Expect: `adam is at <place> (...)` or `adam has no active location.` — viewing yourself is allowed (the self-view fix). For your own canonical state use `/me`.
 
 ---
 
@@ -258,6 +258,64 @@ This proves KV state survives Worker re-deploys (it does — KV is the storage l
 
 ---
 
+## Phase 9 — New endpoints (silent / tz / delete / invite expiry)
+
+These cover the gap-fix endpoints added in commit 3.
+
+### /silent (Gap 4)
+
+- [ ] **9.1** Set adam's location: `BASE/set?u=adam&t=<ADAM_TOKEN>&loc=Anywhere&hours=2`.
+- [ ] **9.2** Turn public mode on.
+- [ ] **9.3** `BASE/silent?u=adam&t=<ADAM_TOKEN>`.
+      Expect: `OK. Going silent: location cleared, public mode OFF.`
+- [ ] **9.4** `/me` → confirm `Location: (none)` and `Public mode: OFF`.
+
+### /tz (Gap 6)
+
+- [ ] **9.5** `BASE/tz?u=adam&t=<ADAM_TOKEN>` (missing tz param).
+      Expect: `Error: Missing tz. Use an IANA name like America/Los_Angeles.`
+- [ ] **9.6** `BASE/tz?u=adam&t=<ADAM_TOKEN>&tz=Mars/Olympus`.
+      Expect: `Error: Invalid timezone: Mars/Olympus.`
+- [ ] **9.7** `BASE/tz?u=adam&t=<ADAM_TOKEN>&tz=America/Los_Angeles`.
+      Expect: `OK. Timezone set to America/Los_Angeles.`
+- [ ] **9.8** Set a location now. The confirmation should say `until <time> PDT` (not CT).
+- [ ] **9.9** `/me` → `Timezone: America/Los_Angeles` and `until ... PDT`.
+- [ ] **9.10** Browser B (Sanya, still on default CT): `BASE/u/adam?as=sanya&t=<SANYA_NEW_TOKEN>`.
+      Expect: time renders in **CT** (sanya's tz), not PDT — confirms viewer-aware formatting.
+- [ ] **9.11** Set adam back to `America/Chicago` for the rest of the plan.
+
+### Invite expiry (Gap 1)
+
+- [ ] **9.12** Generate a fresh invite.
+      Expect: the invite confirmation page shows "Expires <date> (7 days from now)."
+- [ ] **9.13** Visit the new invite URL in Browser B (without claiming it).
+      Expect: normal "Join Hangout" page — invite is fresh.
+
+(Full expiry verification requires a 7-day wait. Logic is straightforward — if you want to force it, edit the KV entry: `npx wrangler kv key get --binding STATE 'invite:<code>'`, change `expiresAt` to a past ISO timestamp, `kv key put` it back, then re-open the URL. Expected: "This invite has expired.")
+
+### /delete with cascade (Gap 2)
+
+⚠️ This phase **deletes a user**. Use a throwaway account, not sanya — or recreate sanya afterward via a fresh invite.
+
+- [ ] **9.14** Adam: generate a new invite. Open it in a third browser context (or wipe Browser B's tab) and claim it as `throwaway`. Save the token.
+- [ ] **9.15** `/me` for adam → allowlist now contains `throwaway`.
+- [ ] **9.16** `BASE/delete?u=throwaway&t=<THROWAWAY_TOKEN>` (no confirm).
+      Expect: `This will permanently delete the account "throwaway". To confirm, re-run with &confirm=yes appended.` (HTTP 400)
+- [ ] **9.17** `BASE/delete?u=throwaway&t=<THROWAWAY_TOKEN>&confirm=yes`.
+      Expect: `Account "throwaway" deleted. Your token is no longer valid.`
+- [ ] **9.18** `BASE/me?u=throwaway&t=<THROWAWAY_TOKEN>` → 401 Invalid token.
+- [ ] **9.19** `/me` for adam → **allowlist no longer contains `throwaway`** (cascade verified).
+
+### Dashboard auto-refresh (Gap 7)
+
+- [ ] **9.20** Open Browser A's dashboard.
+- [ ] **9.21** View source / DevTools: confirm `<meta http-equiv="refresh" content="60">` is present in `<head>`.
+- [ ] **9.22** Leave the tab idle ~65 seconds. Watch the page silently reload.
+
+**Known tradeoff:** the meta-refresh interrupts in-progress form input. If you're mid-typing when the refresh fires, you lose your text. Acceptable for this app's "look at the dashboard, occasionally tap a button" usage; if it bites you, consider bumping the interval from 60s to 120s in `src/worker.js` (search for `200, 60` in `dashboard()`).
+
+---
+
 ## Phase 8 — Claude integration (optional)
 
 If you want to validate the AI assistant path now (covered in detail by [clients.md](clients.md)):
@@ -286,42 +344,23 @@ These are inline already, but to summarize the pattern: **after every write, do 
 
 ---
 
-## Code gaps I noticed (not in the test plan because they're not bugs — but you may want to fix before broader sharing)
+## Resolved gaps (all 7 fixed in commit 3)
 
-### 1. Invite codes never expire
+| # | Gap | Fix | New tests |
+|---|---|---|---|
+| 1 | Invites never expire | 7-day TTL; `expiresAt` on invite records; checked in `joinPage` + `signup`. | 9.12–9.13 |
+| 2 | No account delete | `/delete?u=&t=&confirm=yes` with allowlist cascade. | 9.14–9.19 |
+| 3 | `/u/<unknown>` vs `/u/<unauthorized>` leaked existence | Both now return identical 403 "not shared." | Phase 7 (implicit) |
+| 4 | No "go silent" macro | `/silent` endpoint + dashboard button + Claude snippet entry. | 9.1–9.4 |
+| 5 | Self-view returned "not shared" | `viewUser` special-cases `target === viewer`. | 3.14 (updated) |
+| 6 | TZ hard-coded to CT | Per-user `tz` field (default `America/Chicago`); `/tz` endpoint; viewer-aware formatting in `/u/<name>`. | 9.5–9.11 |
+| 7 | Dashboard didn't auto-refresh | `<meta http-equiv="refresh" content="60">` in dashboard `<head>`. | 9.20–9.22 |
 
-**Risk:** an invite link you sent in May could be used by anyone who finds it in October. If a friend forwards an invite by accident or it ends up in a screenshot, the recipient can sign up indefinitely.
-**Fix:** add `expiresAt` to the invite record (default 7 days). Check in `joinPage` and `signup`. ~8 lines.
+### Follow-ups noticed during the fix pass
 
-### 2. No way to delete your own account
-
-Once signed up, sanya can never leave the app. She can clear her location and turn off public, but her username stays reserved forever.
-**Fix:** `DELETE /me?u=&t=` endpoint that removes the `user:<name>` key. Optionally cascades through every other user's allowlist to remove references. ~25 lines.
-
-### 3. `/u/<unknown>` returns 404, `/u/<unauthorized>` returns 403 — both messages reveal whether a username exists
-
-Minor privacy leak — an attacker who knows your worker URL can probe usernames.
-**Fix:** return identical "not shared / no such user" message in both cases, with status 403. ~3 lines.
-
-### 4. No "go silent" macro
-
-To fully hide, sanya has to (a) clear her location AND (b) turn public off. Two clicks. Could be one button.
-**Fix:** `/silent?u=&t=` endpoint that clears location + sets public=false in one call. ~8 lines.
-
-### 5. Self-viewing quirk (Phase 3.14)
-
-`/u/adam?as=adam` returns "not shared with you" because Adam isn't in his own allowlist. Surprising but not harmful. Adam can always read himself via `/me`.
-**Fix (if desired):** in `viewUser`, special-case `target === viewer` → return as if allowed. ~3 lines.
-
-### 6. Time zone hard-coded to America/Chicago
-
-Sanya in PST will see "until 4:55 PM CT" with no conversion. Not a bug for you (Austin, CT). Future fix: pass viewer's TZ as a query param or use a JS sniff on the client side.
-**Fix:** ~10 lines to make TZ configurable per user record.
-
-### 7. Dashboard doesn't auto-refresh
-
-If sanya updates her location while adam is staring at his dashboard, he won't see it until he reloads. Acceptable for a "drop by" app — the cadence is human-scale.
-**Fix (if it matters):** add `<meta http-equiv="refresh" content="60">` to the dashboard HTML. 1 line.
+- **Auto-refresh interrupts form input.** Acceptable tradeoff (no client-side JS), but if it bites, dial the interval from 60s to 120s in `dashboard()`.
+- **Deleting a user doesn't remove invites they generated.** Pending invites from a deleted user still work — a new signup would get a dangling reference to the deleted inviter. Edge case; can be patched in `deleteAccount` (scan `invite:*` and remove ones where `from` matches) if it ever matters.
+- **Signup doesn't check whether the inviter still exists.** If `inv.from` was deleted between invite creation and use, the new user signs up with a dangling allowlist entry. The `if (inviter)` guard in `signup()` already handles the "inviter not found" case gracefully, but the dangling entry stays. Cleanup: filter the new user's allowlist for entries that resolve to real users at signup time.
 
 ---
 
@@ -331,7 +370,7 @@ While writing this I caught these additional cases worth confirming — already 
 
 - **2.5/2.6:** reserved usernames + case sensitivity. Both should land cleanly.
 - **2.11:** re-using a consumed invite should explicitly return HTTP 410, not just generic error.
-- **3.14:** self-view returns "not shared" — surprising, documented as gap #5.
+- **3.14:** self-view now works (gap #5 fixed).
 - **5.7–5.10:** all four `/rotate` failure modes (no secret, wrong secret, no user, ghost user). Easy to miss; covered.
 - **6.x:** persistence across re-deploy was the original ask but easy to forget mid-flow. Pulled into its own phase.
 - **7.10:** `/u/Sanya` (mixed case) — the server lowercases targets, so this works. Worth confirming.

@@ -1,6 +1,6 @@
 # Hangout
 
-Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~400 lines.
+Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~640 lines.
 
 You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or anyone, if you flip public mode — can see it. Update and read from a browser, from Claude on web/phone, or from `curl`. That's it.
 
@@ -120,7 +120,10 @@ All GET. Plain-text responses except HTML pages.
 | `/allow?u=&t=&friend=` | Add to my allowlist |
 | `/disallow?u=&t=&friend=` | Remove from my allowlist |
 | `/public?u=&t=&on=1\|0` | Toggle public mode |
-| `/invite?u=&t=` | Generate single-use invite link |
+| `/silent?u=&t=` | Clear location + turn public off in one call |
+| `/tz?u=&t=&tz=<IANA>` | Set my timezone for time formatting |
+| `/delete?u=&t=&confirm=yes` | Permanently delete my account (cascades through everyone's allowlist) |
+| `/invite?u=&t=` | Generate single-use invite link (7-day expiry) |
 | `/join?invite=` | Friend's signup page |
 | `/signup?invite=&u=` | Claim a username |
 | `/claude?u=&t=` | Claude Project snippet (plain text) |
@@ -130,6 +133,10 @@ All GET. Plain-text responses except HTML pages.
 ## Notes
 
 - Locations auto-expire (default 2h, max 24h). Expiry is checked at read time, no cron.
+- Invites auto-expire after 7 days. After that they return "expired" and need to be regenerated.
 - Allowlist is one-way: if Adam allowlists Michael, Michael can see Adam — not vice versa unless Michael also allowlists Adam. Invite signup auto-allowlists both ways.
+- Deleting your account is permanent and cascades — your username is removed from every other user's allowlist.
+- Time formatting uses your saved timezone (default `America/Chicago`). When you view a friend, the time renders in *your* tz, not theirs.
+- The dashboard auto-refreshes every 60 seconds so friends' updates appear without a manual reload.
 - KV is eventually consistent; in practice updates show up in <1s for everyone.
 - Token-in-URL means tokens appear in Cloudflare's access logs. Fine for a friends app; don't reuse the token anywhere else.
