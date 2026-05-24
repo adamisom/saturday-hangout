@@ -320,8 +320,10 @@ The unified-error fix means an attacker can't tell which usernames exist by hitt
 
 - [ ] **9.23** `BASE/u/nonexistent-12345?as=adam&t=<ADAM_TOKEN>`.
       Expect: HTTP 403, body `nonexistent-12345's location is not shared with you.`
-- [ ] **9.24** Disallow sanya (if currently allowlisted), then `BASE/u/sanya?as=adam&t=<ADAM_TOKEN>`.
-      Expect: HTTP 403, body `sanya's location is not shared with you.` — **exact same shape as 9.23 modulo the username**, so a probe can't distinguish "no such user" from "user exists but not visible." Re-allow sanya after this test.
+- [ ] **9.24** Make sanya invisible to adam, then probe. The access model checks the **target's** allowlist for the **viewer** (see `viewUser` in app.js), so to hide sanya from adam, **sanya** must disallow adam — not the other way around:
+      `curl "$BASE/disallow?u=sanya&t=<SANYA_TOKEN>&friend=adam"`
+      Then `BASE/u/sanya?as=adam&t=<ADAM_TOKEN>`.
+      Expect: HTTP 403, body `sanya's location is not shared with you.` — **exact same shape as 9.23 modulo the username**, so a probe can't distinguish "no such user" from "user exists but not visible." Restore with `curl "$BASE/allow?u=sanya&t=<SANYA_TOKEN>&friend=adam"` after.
 
 ---
 

@@ -310,6 +310,10 @@ async function dashboard(env, q) {
     </form>
 
     <hr>
+    <h2>Invite a friend</h2>
+    <p><a class="btn" href="/invite?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}"><button class="secondary">Generate invite link</button></a></p>
+
+    <hr>
     <h2>Public mode</h2>
     <p class="small">Currently ${user.public ? '<strong>ON</strong> — anyone with your username can see you' : '<strong>OFF</strong> — only allowlisted friends'}.</p>
     <p>
@@ -328,12 +332,8 @@ async function dashboard(env, q) {
     </p>
 
     <hr>
-    <h2>Invite a friend</h2>
-    <p><a class="btn" href="/invite?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}"><button class="secondary">Generate invite link</button></a></p>
-
-    <hr>
-    <h2>Connect Claude</h2>
-    <p><a href="/claude?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}">Open Claude setup snippet</a> — paste into a Claude Project's custom instructions.</p>
+    <h2>Connect Claude / ChatGPT <span class="small">(optional, one-time)</span></h2>
+    <p><a href="/claude?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}">Open the setup snippet</a> — paste once at the top of a fresh Claude/ChatGPT chat (any plan, including free), or into a Project/Custom GPT if you have Pro/Plus. Then update your location and check on friends without ever leaving the chat.</p>
 
     <hr>
     <h2>Settings</h2>
@@ -346,7 +346,16 @@ async function dashboard(env, q) {
         <button>Update</button>
       </div>
     </form>
-    <p class="small">Delete account: hit <code>/delete?u=&lt;you&gt;&t=&lt;token&gt;&confirm=yes</code>. Permanent — also removes you from everyone's allowlist.</p>
+
+    <hr>
+    <h2>Delete account</h2>
+    <p class="small">Permanent. Removes you from everyone's allowlist and invalidates your token.</p>
+    <p>
+      <a class="btn" href="/delete?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&confirm=yes"
+         onclick="return confirm('Permanently delete your account? This cannot be undone — your token will stop working and you will be removed from everyone\\'s allowlist.');">
+        <button class="secondary">Delete account…</button>
+      </a>
+    </p>
   `, 200, 60);
 }
 
@@ -357,7 +366,10 @@ async function setLocation(env, q) {
   const u = (q.get('u') || '').toLowerCase();
   const user = await authUser(env, u, q.get('t'));
   if (!user) return err('Invalid token.', 401);
-  const loc = (q.get('loc') || '').trim();
+  // Strip control whitespace so /me's line-based format stays parseable. Without
+  // this, a pasted multiline string lands a raw \n in the response body and any
+  // line-based reader (e.g. Claude via WebFetch) misparses the 5-line contract.
+  const loc = (q.get('loc') || '').replace(/[\r\n\t]/g, ' ').trim();
   if (!loc) return err('Missing loc.');
   if (loc.length > 200) return err('Location too long (200 char max).');
   let hours = parseFloat(q.get('hours') || '2');
@@ -579,9 +591,57 @@ async function signup(env, q) {
 
 async function claudeInstructions(env, q, base) {
   const u = (q.get('u') || '').toLowerCase();
-  const user = await authUser(env, u, q.get('t'));
+  const t = q.get('t');
+  const user = await authUser(env, u, t);
   if (!user) return err('Invalid token.', 401);
-  return text(claudeSnippet(base, u, q.get('t')));
+  // HTML wrapper around the same snippet so users get a one-click Copy button + a
+  // plain-language explainer. The raw snippet text lives in <pre id="snippet">.
+  const snippet = claudeSnippet(base, u, t);
+  return html(`
+    <h1>Connect Hangout to Claude or ChatGPT</h1>
+    <p>Paste this snippet <strong>once</strong> at the top of a fresh chat in Claude or ChatGPT — then update your location and check on friends without ever leaving that chat. <strong>Works on any plan, including free tier.</strong></p>
+    <p>After setup you can say things like:</p>
+    <ul>
+      <li><em>"I'm at Pershing Cafe for two hours."</em></li>
+      <li><em>"Where is sanya?"</em></li>
+      <li><em>"Go silent, heading home."</em></li>
+    </ul>
+    <p>Claude or ChatGPT will hit your Hangout URL behind the scenes and tell you what it found.</p>
+    <h2>How to install</h2>
+    <ol>
+      <li>Click <strong>Copy snippet</strong> below.</li>
+      <li><strong>Simplest (any plan):</strong> open Claude.ai or chatgpt.com → start a fresh chat → paste the snippet as your first message → bookmark or pin that chat. From now on just return to that one chat to use Hangout.</li>
+      <li><strong>If you have Claude.ai Pro or ChatGPT Plus:</strong> paste the snippet into a Project's custom instructions (Claude) or a Custom GPT's instructions (ChatGPT) instead. Every new chat inside inherits the setup; syncs cleanly to mobile. (ChatGPT: also enable Web Browsing.)</li>
+    </ol>
+    <p class="small"><strong>Keep this snippet private.</strong> Your token is in it — anyone who has the token can post as you. Treat it like a password.</p>
+    <p class="small"><strong>Claude Code users (developers):</strong> the chat-snippet path above doesn't fit Claude Code well. Use the <code>~/.claude/commands/hangout.md</code> slash-command path instead — see for-friends.md, "Advanced — Claude Code" section.</p>
+    <p>
+      <button id="copy-btn" onclick="copySnippet()">Copy snippet</button>
+    </p>
+    <pre id="snippet">${escapeHtml(snippet)}</pre>
+    <p class="small"><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(t)}">Back to dashboard</a></p>
+    <script>
+      function copySnippet() {
+        var text = document.getElementById('snippet').innerText;
+        var btn = document.getElementById('copy-btn');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function(){
+            btn.textContent = 'Copied!';
+            setTimeout(function(){ btn.textContent = 'Copy snippet'; }, 2000);
+          }).catch(function(){
+            btn.textContent = 'Copy failed — select and copy manually';
+          });
+        } else {
+          // Fallback: select the <pre> so user can ⌘-C
+          var range = document.createRange();
+          range.selectNode(document.getElementById('snippet'));
+          window.getSelection().removeAllRanges();
+          window.getSelection().addRange(range);
+          btn.textContent = 'Selected — press ⌘-C to copy';
+        }
+      }
+    </script>
+  `);
 }
 
 // First-user bootstrap. /signup requires an invite, but the very first user has

@@ -3,7 +3,7 @@ main = "app.js"
 compatibility_date = "2026-04-01"
 workers_dev = true
 
-# After running `npx wrangler kv namespace create STATE`, paste the printed id here:
+# KV namespace id is not a secret — it's an account-scoped identifier (like a table name); access requires your wrangler-auth.
 [[kv_namespaces]]
 binding = "STATE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "17a93889c6494dac810a5087e671676d"

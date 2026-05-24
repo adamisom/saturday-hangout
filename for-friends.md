@@ -2,7 +2,15 @@
 
 Someone just invited you to **Hangout** — a tiny private app for letting friends know *"I'm at Pershing Cafe for 2 hours, drop by."* This doc walks you through claiming your account and using it.
 
-Most people will use Hangout from a **browser bookmark on their phone** — the easy default, no Claude or ChatGPT account needed. If you already pay for Claude or ChatGPT, you can *optionally* drive it from a chat instead. That's strictly extra; the bookmark works perfectly on its own.
+## Two ways to use it
+
+**1. Browser path** — open your dashboard from a phone bookmark, set your location, see where friends are. Zero AI accounts needed. Works on any device with a browser. The easiest start. → **Step 1** + **Step 2** below.
+
+**2. Chat path** — open a fresh chat in Claude or ChatGPT, paste a small snippet from your dashboard at the top, and use that chat as your dedicated "Hangout chat." From then on **you never have to leave that chat to use the app** — just say *"I'm at Pershing for 2 hours"* or *"where's sanya?"* and Claude/ChatGPT handles it. Works on any plan, including free tier. *(If you have Claude.ai Pro or ChatGPT Plus, you can put the snippet into a **Project** or **Custom GPT** instead — same idea, cleaner ergonomics: every new chat inside inherits the setup, and Projects sync across devices.)* → **Step 3** below.
+
+The two paths aren't either-or — you can use both, and many people will: bookmark for a quick tap when you just want to see the map, chat for natural-language *"hey where is everyone?"* moments. Pick whichever fits your day; you don't have to commit.
+
+> **Claude Code users** (developers running `claude` in a terminal): there's a third, even simpler path — a one-file slash command. Desktop-only. See [Advanced — Claude Code](#advanced--claude-code-developers-only) at the bottom.
 
 ---
 
@@ -42,7 +50,7 @@ Built so a small group of friends can coordinate ad-hoc hangs ("drop by if you'r
 
    This puts a Hangout icon on your home screen that opens your dashboard with one tap.
 
-If you ever lose every copy of the URL, text the friend who invited you — they have an admin endpoint to mint you a fresh one.
+If you ever lose every copy of the URL, text **whoever runs the Hangout worker** — the person who first set it up. (For most groups that's one specific friend, but it may *not* be the same person who invited you, since any friend can send invites.) They have an admin endpoint that mints you a fresh dashboard URL.
 
 ---
 
@@ -73,16 +81,15 @@ If you'd rather say *"I'm at Pershing for 2 hours"* in a chat you already have o
 
 The setup tells the AI to fetch URLs when you say things like *"I'm at &lt;place&gt; for N hours."* If you put it into your **default** Claude or ChatGPT (the one you use for everything), the AI will misfire on phrases like *"I'm at home"* or *"I'll be in the kitchen"* — it doesn't know "Hangout" is the topic, it just sees a matching pattern.
 
-So you'll put the setup in a **separate, scoped place** that only activates when you choose. Every major AI tool has one:
+The fix is to keep Hangout in its own scoped place. You have three options:
 
-| You use... | Plan needed | The scoped place |
+| Option | Plan needed | How |
 |---|---|---|
-| **Claude.ai** (web, desktop, or mobile) | Pro ($20/mo) | A **Project** |
-| **ChatGPT** | Plus ($20/mo) | A **Custom GPT** |
-| Claude or ChatGPT on free tier | — | None available — **stick with the bookmark** |
-| Claude Code (CLI, for developers) | any | A **slash command** (see Advanced section at the bottom) |
+| **Dedicated chat** (simplest, works for everyone) | any (incl. free tier) | Open a fresh chat in Claude or ChatGPT, paste the snippet as your first message, then *only return to that one chat* when you want to use Hangout. Bookmark or pin it so you can find it again. |
+| **Project / Custom GPT** (cleaner) | Claude.ai Pro $20/mo, or ChatGPT Plus $20/mo | Paste the snippet into a Claude **Project**'s custom instructions, or a ChatGPT **Custom GPT**'s instructions. Every new chat inside inherits the setup automatically; syncs across web, desktop, and mobile. |
+| **Slash command** (developers) | Claude Code (CLI), any plan | A `~/.claude/commands/hangout.md` file — see [Advanced — Claude Code](#advanced--claude-code-developers-only) at the bottom. |
 
-Pick whichever matches what you already use. If you're on a free tier and don't want to upgrade, no worries — the bookmark works for everyone.
+Pick whichever fits. The dedicated-chat path is the easiest start and costs nothing — Projects and Custom GPTs are nicer ergonomics if you already pay for them.
 
 ### Step 3a — get your Claude snippet
 
@@ -125,9 +132,16 @@ That's it. Try it: type *"What's my hangout state?"* — Claude should respond w
 
 That's it. Open the Hangout GPT and try: *"What's my hangout state?"*
 
-#### → If you're on a free tier
+#### → Dedicated chat (works on free tier, or any tier)
 
-There's no sandboxed place to put the snippet that wouldn't misfire on unrelated phrases. Just use the bookmark from Step 2 — it's actually faster than chatting once you have it on your home screen.
+1. Open Claude.ai (or chatgpt.com) and start a **fresh** chat.
+2. Paste the snippet as your first message and send it. The AI will usually reply with something like *"Got it, ready when you are."*
+3. **Bookmark or pin that exact chat.** From now on, *only return to that one chat* to use Hangout — don't start a new chat each time.
+4. Try it: *"What's my hangout state?"* — should reply with your username, public mode, allowlist, and current location.
+
+Tradeoffs vs. a Project / Custom GPT: the snippet stays in the chat's scroll history (still private to your account), and you have to remember which chat is "the Hangout one." Pinning solves the second problem.
+
+If that's more friction than you want, just use the bookmark from Step 2.
 
 ### Step 3c — test it works
 
@@ -144,15 +158,34 @@ If something looks off:
 
 ### Step 3d — using it (after setup)
 
-Going forward, just open your Hangout project (Claude) or Hangout GPT (ChatGPT) and chat normally:
+Going forward, just open your Hangout chat / Project / Custom GPT and talk normally. Examples of what works:
 
+**Update where you are:**
 > *"I'll be at Pershing for the next 2 hours."*
+> *"At Mozart's, give me an hour."*
+> *"Heading to Cosmic Coffee for 90 minutes."*
+> *"Working from the office today, 4 hours."*
+> *"Pershing"* — short form; defaults to 2 hours
+
+**Check on a friend (one at a time):**
 > *"Where is sanya?"*
-> *"Going silent, I'm heading home."*
+> *"What's michael up to right now?"*
+> *"Is jen out anywhere?"*
+> *"sanya"* — just the username also works
+
+**Check your own state:**
+> *"What's my state?"*
+> *"Am I sharing anything right now?"*
+> *"What's my current location set to?"*
+
+**Stop sharing:**
+> *"Clear my location."*
+> *"Going silent, heading home."*  (silent = clears location AND turns public off)
+> *"Hide me for a bit."*
 
 You don't re-paste anything. You don't log in. The snippet you set up once handles every future request.
 
-If your friend ever rotates your token (because you lost your bookmark — see Troubleshooting), come back to your dashboard's "Connect Claude" section, grab the fresh snippet, and re-paste it into your same Project / Custom GPT. The username and old snippet shape are unchanged — only the token line differs.
+If the worker owner ever rotates your token (because you lost your bookmark — see Troubleshooting), come back to your dashboard's "Connect Claude" section, grab the fresh snippet, and re-paste it. The username and snippet shape are unchanged — only the token line differs.
 
 ---
 
@@ -160,11 +193,13 @@ If your friend ever rotates your token (because you lost your bookmark — see T
 
 ### "I closed the Welcome page without saving anything."
 
-If you saved the dashboard URL anywhere (password manager, notes, email), you're fine — just open it. If not, text the friend who invited you and ask them to rotate your token. They'll send you a fresh dashboard URL.
+If you saved the dashboard URL anywhere (password manager, notes, email), you're fine — just open it. If not, text **whoever runs the Hangout worker** (the person who first deployed it). They have an admin endpoint that rotates your token and gives you a fresh dashboard URL.
 
 ### "I lost my bookmark and have no backup."
 
-Same as above. The token in the URL is your password. Whoever runs the Hangout worker (the friend who invited you, in most cases) can mint you a fresh token via their admin endpoint, then text you the new URL. Old token immediately stops working.
+Same as above. The token in the URL is your password. The person who runs the worker can mint you a fresh token via their admin endpoint and text you the new dashboard URL. The old token stops working immediately.
+
+(Note: this is the worker *owner*, not necessarily the friend who invited you. Any friend can send invites, but only the worker owner has the admin secret needed to rotate tokens. If you're not sure who that is, ask your inviter — they'll know.)
 
 ### "My friends see times in their timezone but I see mine — is that right?"
 
@@ -178,11 +213,7 @@ Click **Go silent** on your dashboard. One tap — clears your location and turn
 
 ### "I want to delete my account entirely."
 
-There's no button for this — it's a deliberate URL you have to type, to avoid accidental clicks. Visit (replacing the placeholders with your own username and token):
-
-```
-<your-dashboard-host>/delete?u=<you>&t=<your-token>&confirm=yes
-```
+Scroll to the bottom of your dashboard → click **"Delete account…"** Your browser will ask you to confirm; click OK.
 
 ⚠️ Permanent. Your username is freed, your token stops working, and you're removed from every friend's allowlist automatically. No undo.
 
@@ -221,14 +252,33 @@ If $ARGUMENTS is "me" or "state", fetch /me?u=<me>&t=<tok>.
 Paste the response body back to me verbatim before any commentary.
 ```
 
-Then in any `claude` session:
+Then in any `claude` session, try:
 
 ```
+# Set your location (auto-fetches /set):
 /hangout I'm at Pershing Cafe for 3 hours
-/hangout michael                       # → "michael is at Pershing Cafe (...)"
-/hangout clear
-/hangout silent
+/hangout at Mozart's for an hour
+/hangout heading to Cosmic Coffee, 90 minutes
+/hangout working from home, 4 hours
+/hangout Pershing                       # short form; defaults to 2 hours
+
+# Check on a friend (auto-fetches /u/<name>):
+/hangout sanya                          # → "sanya is at Mozart's (...)"
+/hangout where is michael
+/hangout is jen out right now
+
+# Your own state (auto-fetches /me):
+/hangout me
+/hangout state                          # same as 'me'
+/hangout what's my state
+
+# Stop sharing (auto-fetches /clear or /silent):
+/hangout clear                          # just clears your location
+/hangout silent                         # clears AND turns public mode off
+/hangout hide me                        # same as silent
 ```
+
+The slash command intentionally covers only the daily-use operations (set, check, clear, silent, me). For one-time admin actions — allowlist changes, public mode toggle, generating invite links, changing timezone, deleting account — open your dashboard URL.
 
 (The `<me>` and `<tok>` placeholders in the URL templates are resolved by Claude from the identity block above them in the prompt. If they ever come through literally in a fetched URL, replace them with your actual values inline.)
 
