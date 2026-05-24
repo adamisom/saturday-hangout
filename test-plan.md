@@ -52,7 +52,7 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 - [ ] **1.6** Visit `BASE/dashboard?u=adam&t=WRONG`.
   Expect: "Invalid login" page (HTTP 401).
 - [ ] **1.7** Visit `BASE/dashboard?u=adam&t=<ADAM_TOKEN>`.
-  Expect: dashboard with "Hi, adam", "No active location", placeholder "Pershing Cafe", empty allowlist, empty friends. **Bookmark this URL right now.**
+  Expect: dashboard with "Hi, adam", "No active location", placeholder "Pershing Cafe", empty allowlist, empty friends, plus a "Go silent" section, a "Settings" section showing `Timezone: America/Chicago`, and a `/delete` hint. The page auto-refreshes every 60s. **Bookmark this URL right now.**
 
 ### Set / read own location
 
@@ -61,7 +61,7 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 - [ ] **1.9** Click your browser's Back arrow → land on dashboard.
   Expect: top section now reads **Pershing Cafe** with "1h 59m left (until <clock>)".
 - [ ] **1.10** Visit `BASE/me?u=adam&t=<ADAM_TOKEN>`.
-  Expect: lines for username/public/allowlist/location, location string matches.
+  Expect: five lines — Username, Public mode, Timezone (default `America/Chicago`), Allowlist, Location. Location string matches what you set in 1.8.
 
 ### Public mode
 
@@ -192,7 +192,7 @@ This is the "Sanya lost her bookmark" simulation.
 - [ ] **5.4** Browser B: reload (with old token in URL).
   Expect: "Invalid login" page (HTTP 401).
 - [ ] **5.5** Browser B: open `BASE/dashboard?u=sanya&t=<SANYA_NEW_TOKEN>`.
-  Expect: full dashboard, with **location still `Recovery Test`** and **allowlist still containing `adam`**. (Rotation only changes the token; everything else persists.)
+  Expect: full dashboard, with **location still `Recovery Test`**, **allowlist still containing `adam`**, and **timezone, public mode, and all other fields preserved**. Only the token changes.
 - [ ] **5.6** Bookmark the new URL; delete the old bookmark.
 
 ### Negative path
@@ -312,15 +312,24 @@ These cover the gap-fix endpoints added in commit 3.
 - [ ] **9.21** View source / DevTools: confirm `<meta http-equiv="refresh" content="60">` is present in `<head>`.
 - [ ] **9.22** Leave the tab idle ~65 seconds. Watch the page silently reload.
 
-**Known tradeoff:** the meta-refresh interrupts in-progress form input. If you're mid-typing when the refresh fires, you lose your text. Acceptable for this app's "look at the dashboard, occasionally tap a button" usage; if it bites you, consider bumping the interval from 60s to 120s in `src/worker.js` (search for `200, 60` in `dashboard()`).
+**Known tradeoff:** the meta-refresh interrupts in-progress form input. If you're mid-typing when the refresh fires, you lose your text. Acceptable for this app's "look at the dashboard, occasionally tap a button" usage; if it bites you, consider bumping the interval from 60s to 120s in `app.js` (search for `200, 60` in `dashboard()`).
+
+### Username probe protection (Gap 3)
+
+The unified-error fix means an attacker can't tell which usernames exist by hitting `/u/<name>` — nonexistent and unauthorized look identical.
+
+- [ ] **9.23** `BASE/u/nonexistent-12345?as=adam&t=<ADAM_TOKEN>`.
+      Expect: HTTP 403, body `nonexistent-12345's location is not shared with you.`
+- [ ] **9.24** Disallow sanya (if currently allowlisted), then `BASE/u/sanya?as=adam&t=<ADAM_TOKEN>`.
+      Expect: HTTP 403, body `sanya's location is not shared with you.` — **exact same shape as 9.23 modulo the username**, so a probe can't distinguish "no such user" from "user exists but not visible." Re-allow sanya after this test.
 
 ---
 
 ## Phase 8 — Claude integration (optional)
 
-If you want to validate the AI assistant path now (covered in detail by [clients.md](clients.md)):
+If you want to validate the AI assistant path now (covered in detail by [for-friends.md](for-friends.md)):
 
-- [ ] **8.1** Create `~/.claude/commands/hangout.md` from the template in clients.md, with your username + `ADAM_TOKEN` filled in.
+- [ ] **8.1** Create `~/.claude/commands/hangout.md` from the template in for-friends.md, with your username + `ADAM_TOKEN` filled in.
 - [ ] **8.2** In any `claude` session: `/hangout I'm at Pershing Cafe for 2 hours.`
   Expect: Claude fires WebFetch and quotes `OK. Location set: ...`
 - [ ] **8.3** `/hangout sanya` → Claude returns sanya's location.
@@ -339,8 +348,11 @@ These are inline already, but to summarize the pattern: **after every write, do 
 | `/allow` | `/me` allowlist contains the friend |
 | `/disallow` | `/me` allowlist excludes the friend |
 | `/public?on=1` | `/me` shows `Public mode: ON` |
+| `/silent` | `/me` shows location none + public OFF |
+| `/tz` | `/me` shows the new `Timezone:` value |
 | `/signup` | sender's `/me` allowlist contains the new user; new user's allowlist contains sender |
 | `/rotate` | new dashboard URL works; old returns 401; all other fields preserved |
+| `/delete?confirm=yes` | every `/me` and `/dashboard` for that user returns 401; account is gone from every other user's allowlist |
 
 ---
 
@@ -350,7 +362,7 @@ These are inline already, but to summarize the pattern: **after every write, do 
 |---|---|---|---|
 | 1 | Invites never expire | 7-day TTL; `expiresAt` on invite records; checked in `joinPage` + `signup`. | 9.12–9.13 |
 | 2 | No account delete | `/delete?u=&t=&confirm=yes` with allowlist cascade. | 9.14–9.19 |
-| 3 | `/u/<unknown>` vs `/u/<unauthorized>` leaked existence | Both now return identical 403 "not shared." | Phase 7 (implicit) |
+| 3 | `/u/<unknown>` vs `/u/<unauthorized>` leaked existence | Both now return identical 403 "not shared." | 9.23–9.24 |
 | 4 | No "go silent" macro | `/silent` endpoint + dashboard button + Claude snippet entry. | 9.1–9.4 |
 | 5 | Self-view returned "not shared" | `viewUser` special-cases `target === viewer`. | 3.14 (updated) |
 | 6 | TZ hard-coded to CT | Per-user `tz` field (default `America/Chicago`); `/tz` endpoint; viewer-aware formatting in `/u/<name>`. | 9.5–9.11 |

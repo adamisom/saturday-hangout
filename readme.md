@@ -8,9 +8,9 @@ You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or any
 
 ## Architecture
 
-One Cloudflare Worker (`src/worker.js`), one KV namespace (`STATE`), no client-side JS, no framework, no build step. Server-rendered HTML for the dashboard, plain-text GET API for everything else (so Claude / ChatGPT can drive it with just their web-fetch tool).
+One Cloudflare Worker (`app.js`), one KV namespace (`STATE`), no client-side JS, no framework, no build step. Server-rendered HTML for the dashboard, plain-text GET API for everything else (so Claude / ChatGPT can drive it with just their web-fetch tool).
 
-For the request-flow diagram, module breakdown, data model, and design tradeoffs, see [docs/architecture.md](docs/architecture.md).
+For the request-flow diagram, module breakdown, data model, and design tradeoffs, see [architecture.md](architecture.md).
 
 ## Prerequisites
 
@@ -85,13 +85,11 @@ Only the worker owner (you, the holder of `BOOTSTRAP_SECRET`) can call `/rotate`
 
 **Tell friends at signup:** save the dashboard URL to a password manager, notes app, or send-it-to-yourself email *as well as* bookmarking it. The bookmark is convenient; the second copy is the safety net.
 
-## Connect a chat assistant (Claude / ChatGPT)
+## For friends you're inviting
 
-On the dashboard, click **Open Claude setup snippet** to get your personal paste-in.
+[for-friends.md](for-friends.md) is the friend-facing onboarding guide — designed to be pasted into a GitHub Gist and shared. It covers their day-one signup, the browser-bookmark path, the optional Claude / ChatGPT integration (with the sandboxing rule), day-N usage, troubleshooting, and security notes. Send the Gist URL alongside the invite link.
 
-For per-surface setup (Claude Code, Claude Desktop, Claude.ai web, Claude.ai mobile, ChatGPT Plus, ChatGPT Free) — including a 4-step manual validation checklist for each — see [docs/clients.md](docs/clients.md).
-
-Quick version: any assistant that can fetch arbitrary URLs works. Claude Code is the most reliable surface (free tier, deterministic WebFetch). Claude.ai Pro and ChatGPT Plus both work cleanly via Projects / Custom GPTs.
+For *your* setup (deploying, generating invites, rotating tokens), the sections above cover everything you need.
 
 ## Local dev
 

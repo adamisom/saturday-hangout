@@ -1,6 +1,6 @@
 // Hangout — ad-hoc location sharing for friends.
 // Single Cloudflare Worker. KV namespace `STATE`. Secret `BOOTSTRAP_SECRET`.
-// Architecture, modules, and design tradeoffs: docs/architecture.md.
+// Architecture, modules, and design tradeoffs: architecture.md.
 
 const RESERVED = new Set([
   'set', 'clear', 'u', 'allow', 'disallow', 'public', 'signup', 'invite',
@@ -242,7 +242,7 @@ async function dashboard(env, q) {
 
   // O(N) scan of all users to find ones visible to me. Fine up to a few hundred;
   // past that, add a 'subscribers:<name>' reverse index.
-  // See docs/architecture.md → "Design choices and tradeoffs".
+  // See architecture.md → "Design choices and tradeoffs".
   const all = await env.STATE.list({ prefix: 'user:' });
   const friends = [];
   for (const key of all.keys) {
@@ -352,7 +352,7 @@ async function dashboard(env, q) {
 
 // Writes use GET so chat assistants' web-fetch tools (which fire GETs reliably,
 // POSTs less so) can drive the app. No CDN cache sits in front, so the usual
-// GET-side-effect risks don't apply. See docs/architecture.md → "Design choices".
+// GET-side-effect risks don't apply. See architecture.md → "Design choices".
 async function setLocation(env, q) {
   const u = (q.get('u') || '').toLowerCase();
   const user = await authUser(env, u, q.get('t'));

@@ -16,7 +16,7 @@ Clients
                               ▼
                  ┌──────────────────────────┐
                  │ Cloudflare Worker        │
-                 │   src/worker.js          │
+                 │   app.js                 │
                  │                          │
                  │  ┌────────────────────┐  │
                  │  │ Router  fetch({})  │  │
@@ -47,7 +47,7 @@ Three client surfaces, one server, one store. The Worker derives its own base UR
 
 ## Modules
 
-Everything is in [src/worker.js](../src/worker.js). The file is small enough that "module" really means "section" — but the responsibilities are distinct.
+Everything is in [app.js](app.js). The file is small enough that "module" really means "section" — but the responsibilities are distinct.
 
 | Module | What it does | Key functions |
 |---|---|---|
@@ -132,5 +132,5 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 
 - **Logs:** `npx wrangler tail` streams live request logs.
 - **KV inspection:** `npx wrangler kv key list --binding STATE` lists keys; `npx wrangler kv key get --binding STATE user:adam` reads a value.
-- **Token rotation:** if a friend loses their bookmark or a token leaks, hit `/rotate?s=<BOOTSTRAP_SECRET>&u=<name>` — it mints a fresh token and prints the new dashboard URL. See [README → Token rotation](../README.md#token-rotation).
+- **Token rotation:** if a friend loses their bookmark or a token leaks, hit `/rotate?s=<BOOTSTRAP_SECRET>&u=<name>` — it mints a fresh token and prints the new dashboard URL. See [readme → Token rotation](readme.md#token-rotation).
 - **Backup:** KV doesn't auto-backup. For this app it's not worth a job — the entire DB can be dumped via `kv key list` + a loop, and the loss of "friends' current location after a CF disaster" is fine. If you'd rather have a daily snapshot, that's ~15 lines added to a scheduled Worker trigger.
