@@ -57,7 +57,7 @@ Everything is in [app.js](app.js). The file is small enough that "module" really
 | **Time** | ISO + clock formatting (per-user tz); relative-time strings; expiry check. | `nowIso()`, `fmtRelative()`, `fmtClock()`, `activeLocation()` |
 | **Storage adapter** | The only place that talks to KV. Wraps JSON serialization + token check. | `getUser()`, `putUser()`, `authUser()` |
 | **HTML pages** | Server-rendered pages: landing, dashboard, invite display, join form, signup confirmation, Claude/ChatGPT snippet. | `landing()`, `dashboard()`, `makeInvite()`, `joinPage()`, `joinForm()`, `signup()`, `claudeInstructions()` |
-| **API handlers** | One per endpoint. All return plain text. | `setLocation()`, `clearLocation()`, `showMe()`, `viewUser()`, `allow()`, `disallow()`, `setPublic()`, `goSilent()`, `setTz()`, `deleteAccount()` |
+| **API handlers** | One per endpoint. All return plain text. | `setLocation()`, `clearLocation()`, `showMe()`, `showLinks()`, `savePreset()`, `deletePreset()`, `viewUser()`, `allow()`, `disallow()`, `setPublic()`, `goSilent()`, `setTz()`, `deleteAccount()` |
 | **Admin** | First-user creation, token rotation, and the invite-lineage report, guarded by `BOOTSTRAP_SECRET`. | `bootstrap()`, `rotateToken()`, `lineage()` |
 
 The storage adapter is the load-bearing abstraction — every other module flows through it. If we ever swap KV for D1 / SQLite / Durable Objects, only this module changes.
@@ -78,6 +78,10 @@ The entire app is two key types in one KV namespace.
     "expiresAt": "2026-05-24T21:55:00.000Z"
   },
   "tz": "America/Chicago",
+  "presets": [
+    { "name": "home", "loc": "Home" },
+    { "name": "work", "loc": "Capital Factory" }
+  ],
   "createdAt": "2026-05-17T18:02:11.831Z"
 }
 ```
@@ -86,6 +90,7 @@ The entire app is two key types in one KV namespace.
 - `allowlist` is one-directional: my list controls who can see *me*.
 - `location` is null until set, then `{text, expiresAt}`. Expiry is checked at read time (no cron) — `activeLocation()` returns null for expired entries without rewriting them.
 - `tz` is the user's IANA timezone (default `America/Chicago`). Used to format clock times in responses. When viewing someone else's `/u/<name>`, the time renders in the *viewer's* tz, not the target's.
+- `presets` is an optional array of named saved places, capped at 20 per user. Each preset is `{name, loc}`; `name` is the unique key (used by /delete-preset and as the dedupe key for upserts). Hours intentionally aren't part of a preset — the user supplies hours per-call ("I'm at home for 4 hours") or accepts the /set default of 2. Exists to make the Claude/ChatGPT chat path work for places that aren't enumerable in advance — see "URL provenance and /links" below.
 
 **`invite:<code>`** — one per generated invite:
 
@@ -106,7 +111,7 @@ That's the whole schema. No accounts table, no sessions table, no cookies.
 
 ## Request lifecycle: walking through `/set`
 
-A concrete example — Claude (or curl, or a browser) hits `/set?u=adam&t=XYZ&loc=Pershing+Cafe&hours=3`:
+A concrete example — Claude (or curl, or a browser) hits `/set?u=adam&nonce=XYZ&loc=Pershing+Cafe&hours=3`:
 
 1. **Worker entry.** Cloudflare invokes `fetch(request, env)`. We parse the URL and extract `path = "/set"`, `q = URLSearchParams{...}`.
 2. **Router.** `path === '/set'` → call `setLocation(env, q)`.
@@ -127,8 +132,9 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 - **List-scan for friends.** Dashboard renders by listing all `user:*` keys and filtering visible ones. O(N) per dashboard view, fine up to a few hundred users. If we ever grow past that, add a `subscribers:<username>` reverse index.
 - **No frontend framework.** Pages are server-rendered HTML strings. The dashboard form posts via plain `<form action="/set" method="get">` — no JavaScript executes in the browser. Friends with JS disabled (rare but possible) still get a working app.
 - **Invite chain cap (`MAX_INVITE_DEPTH = 3`).** Each user record carries a `depth` field — 0 for the bootstrap user, +1 per invite hop. `makeInvite` refuses if the inviter is at the cap. Without this, transitive trust grows without bound: any friend can invite anyone, who can invite anyone, etc. The cap doesn't replace "trust your friends" — it limits blast radius if one of them is careless. Inviter's depth is snapshotted into the invite record at creation time, so signup works even if the inviter is deleted between invite creation and use.
-- **Dashboard write actions 303-redirect, including failures.** Forms and links append `&return=dashboard`; the worker uses that to distinguish "submitted from the dashboard" from "called by Claude/curl". Success → 303 back to `/dashboard?u=&t=` (`actionResponse`). Validation failure with `return=dashboard` → 303 back with `&error=<msg>` appended; the dashboard renders the error as a banner that fades after the next auto-refresh tick (`actionError`). Claude/curl callers (no `return=dashboard`) get plain text either way. Applies uniformly to `/set`, `/clear`, `/silent`, `/allow`, `/disallow`, `/public`, `/tz`.
-- **Single file.** At ~870 lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Revisit if it crosses ~1000.
+- **Dashboard write actions 303-redirect, including failures.** Forms and links append `&return=dashboard`; the worker uses that to distinguish "submitted from the dashboard" from "called by Claude/curl". Success → 303 back to `/dashboard?u=&nonce=` (`actionResponse`). Validation failure with `return=dashboard` → 303 back with `&error=<msg>` appended; the dashboard renders the error as a banner that fades after the next auto-refresh tick (`actionError`). Claude/curl callers (no `return=dashboard`) get plain text either way. Applies uniformly to `/set`, `/clear`, `/silent`, `/allow`, `/disallow`, `/public`, `/tz`.
+- **Single file.** At ~1k lines, the app is still small enough that splitting into modules costs more than it saves (chasing imports, deciding what's a module). Consider splitting into modules if it grows a lot more.
+- **URL provenance and `/links`.** Claude Chat (Desktop) / Claude.ai web app and ChatGPT only allow their web_fetch tool to request URLs that already appeared in the conversation — as a literal user message or a literal tool-result body. URLs the assistant constructs from templates with placeholders (`/u/<name>`, `/allow?…&friend=<name>`) get rejected after substitution. To make the chat path work without forcing the user to paste a URL for every friend lookup, `/links` returns a flat menu of fully-formed URLs for everything the assistant might need: each visible friend, each allowlist toggle, each saved place. The snippet instructs Claude to fetch `/links` on its first turn, which seeds those URLs into the tool-result history; from then on the assistant can fetch any of them directly. Free-text /set for a *novel* place is the one case this can't solve — the URL with the new place name in it has never appeared anywhere. For that, `/set`'s response includes a fully-formed `/save-preset` URL, so the user can say "save it" and have the assistant fetch the save URL directly (no second paste); the next chat session has the place pre-loaded via `/links`.
 
 ## Operations
 
@@ -147,7 +153,7 @@ Every API endpoint follows this shape: auth → validate → mutate (or read) �
 
 ### Primitive: keys in the URL fragment
 
-Browsers never send `#…` to the server. So the dashboard URL becomes `…/dashboard?u=alice&t=TOKEN#sk=PRIVATEKEY`. Logs, KV, and `wrangler tail` see only the query string. About 150 lines of client-side WebCrypto in the dashboard do the encrypt/decrypt. This departs from the current "no JS in the browser" rule — server-rendered HTML still works for everything except the location string itself.
+Browsers never send `#…` to the server. So the dashboard URL becomes `…/dashboard?u=alice&nonce=TOKEN#sk=PRIVATEKEY`. Logs, KV, and `wrangler tail` see only the query string. About 150 lines of client-side WebCrypto in the dashboard do the encrypt/decrypt. This departs from the current "no JS in the browser" rule — server-rendered HTML still works for everything except the location string itself.
 
 *Multi-device:* the key lives in the URL, not on the device. Friends sync phone + laptop the same way they sync today's token URL — password manager, email-to-self. No per-device enrollment. If we later want device-bound keys (passkeys, secure-enclave), `user.pubs` becomes an array of `{device_label, pub}` capped at 3 and senders encrypt to all of them — separate upgrade, only worth it if URL-fragment-as-key starts feeling like a liability.
 
@@ -186,7 +192,7 @@ For the friend who asks "can you see my data?", the honest answer is: "No — an
 |---|---|
 | `/signup` | Accept browser-generated `pub`; redirect to dashboard URL with `#sk=…` |
 | `/set` | `r=<base64-json-recipients-map>` instead of `loc=<text>` |
-| `/pubkeys?u=&t=` *(new)* | Returns pubs of `u`'s allowlist + their own |
+| `/pubkeys?u=&nonce=` *(new)* | Returns pubs of `u`'s allowlist + their own |
 | `/u/<name>` | Returns `{ct, iv, sender_pub, expiresAt}`; 403 if `as=` not in recipients |
 | `/dashboard`, `/me` | Embed JS bundle, return ciphertexts, render after decrypt |
 | `/rotate` | Also regenerates `pub`; old ciphertexts addressed to friend become unreadable (TTL handles cleanup) |

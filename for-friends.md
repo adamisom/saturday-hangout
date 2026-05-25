@@ -61,6 +61,7 @@ Tap your home-screen Hangout icon (or your bookmark) → dashboard opens.
 You can:
 - **Set your location** — type a place + hours, hit Update.
 - **See where friends are** — listed under "Friends" (anyone who's allowlisted you, or anyone in public mode).
+- **Saved places** — optional. Pre-store frequent spots (Home, Work, your usual coffee shop) with a short name + default hours. The dashboard doesn't strictly need these — you can always type into the location field. They mostly matter if you use the chat path (Step 3): updating to a saved place is a one-message exchange ("I'm at home"), whereas a brand-new place forces the assistant to make you copy-paste a URL into the chat — a Claude / ChatGPT security constraint, not something we can work around. See Step 3d.
 - **Allowlist someone** — type their username, click Add. Now they can see your location.
 - **Remove someone** — `[remove]` link next to their name.
 - **Toggle Public mode** — if on, anyone (with or without an account) can see you when they visit `/u/<your-username>`. Default off.
@@ -79,7 +80,7 @@ If you'd rather say *"I'm at Pershing for 2 hours"* in a chat you already have o
 
 ### Read this first: where you put the setup matters
 
-The setup tells the AI to fetch URLs when you say things like *"I'm at &lt;place&gt; for N hours."* If you put it into your **default** Claude or ChatGPT (the one you use for everything), the AI will misfire on phrases like *"I'm at home"* or *"I'll be in the kitchen"* — it doesn't know "Hangout" is the topic, it just sees a matching pattern.
+The setup tells the AI to talk to Hangout when you say things like *"I'm at &lt;place&gt; for N hours."* If you put it into your **default** Claude or ChatGPT (the one you use for everything), the AI will misfire on phrases like *"I'm at home"* or *"I'll be in the kitchen"* — it doesn't know "Hangout" is the topic, it just sees a matching pattern.
 
 The fix is to keep Hangout in its own scoped place. You have three options:
 
@@ -134,7 +135,7 @@ That's it. Open the Hangout GPT and try: *"What's my hangout state?"*
 
 #### → Dedicated chat (works on free tier, or any tier)
 
-1. Open Claude.ai (or chatgpt.com) and start a **fresh** chat.
+1. Open Claude Chat (Desktop) or **claude.ai** in a browser — or chatgpt.com — and start a **fresh** chat.
 2. Paste the snippet as your first message and send it. The AI will usually reply with something like *"Got it, ready when you are."*
 3. **Bookmark or pin that exact chat.** From now on, *only return to that one chat* to use Hangout — don't start a new chat each time.
 4. Try it: *"What's my hangout state?"* — should reply with your username, public mode, allowlist, and current location.
@@ -156,7 +157,25 @@ If something looks off:
 - The AI rephrases the response in its own words instead of quoting it → reply with *"Paste the response body exactly, don't summarize."*
 - You get `Error: Invalid token` → the snippet picked up a stray space or quote when you pasted. Re-copy from the dashboard's snippet page and try again.
 
-### Step 3d — using it (after setup)
+### Step 3d — set up your saved places (60 seconds, one-time)
+
+**Why this exists:** Claude Chat (Desktop) / Claude.ai web app and ChatGPT only let the assistant reach URLs that have already appeared in your conversation. Friend usernames and your saved places are pre-loaded for the assistant via a behind-the-scenes call it makes at the top of the chat. But a brand-new place name ("I'm at Foo Diner" for the first time) hasn't appeared anywhere yet, so the host blocks the call. The assistant has to ask you to paste the constructed URL back once — annoying if it happens every time.
+
+**The fix:** add the places you go regularly as **Saved places** on your dashboard. Open your dashboard → scroll to **Saved places** (under "Invite a friend") → add a few entries:
+
+- *Home* → `Home`
+- *Work* → `Capital Factory` (short name + full place text can differ)
+- *Mozart's* → `Mozart's Coffee`
+
+After saving, those places update in a single chat message — *"I'm at home"*, *"I'm at Mozart's"* just works. Default duration is 2 hours; say *"for N hours"* or *"for 90 minutes"* to override.
+
+**For one-off places** ("I'm at Foo Diner"), the assistant builds the right URL but the chat host won't let it through — the URL hasn't appeared in the conversation yet. The assistant will print the URL and ask you to paste it back as a message; that satisfies the host's check, and the update goes through. So updating to a novel place is still doable in chat without switching apps, but it costs you one copy-paste per new place. Once the update lands, Hangout's reply includes a save-this-place URL the assistant can use directly, so saying *"yes save it"* converts the one-off into a Saved place — every subsequent visit is one message, no paste.
+
+If the paste step is more friction than you want, just update those places from the dashboard instead. The chat path stays useful for everything else (friend lookups, your saved places, /me, clear, silent, public toggle).
+
+You can add/remove Saved places anytime from the dashboard. Cap is 20.
+
+### Step 3e — using it (after setup)
 
 Going forward, just open your Hangout chat / Project / Custom GPT and talk normally. Examples of what works:
 
@@ -243,11 +262,11 @@ Use the Hangout API. My identity:
 - Token: <YOUR TOKEN>
 - Base URL: <YOUR WORKER URL>
 
-If $ARGUMENTS sounds like a place ("I'm at X for N hours"), fetch /set?u=<me>&t=<tok>&loc=<place>&hours=<n>.
-If $ARGUMENTS is a friend's username, fetch /u/<name>?as=<me>&t=<tok>.
-If $ARGUMENTS is "clear", fetch /clear?u=<me>&t=<tok>.
-If $ARGUMENTS is "silent" or "hide me", fetch /silent?u=<me>&t=<tok>.
-If $ARGUMENTS is "me" or "state", fetch /me?u=<me>&t=<tok>.
+If $ARGUMENTS sounds like a place ("I'm at X for N hours"), fetch /set?u=<me>&nonce=<tok>&loc=<place>&hours=<n>.
+If $ARGUMENTS is a friend's username, fetch /u/<name>?as=<me>&nonce=<tok>.
+If $ARGUMENTS is "clear", fetch /clear?u=<me>&nonce=<tok>.
+If $ARGUMENTS is "silent" or "hide me", fetch /silent?u=<me>&nonce=<tok>.
+If $ARGUMENTS is "me" or "state", fetch /me?u=<me>&nonce=<tok>.
 
 Paste the response body back to me verbatim before any commentary.
 ```

@@ -1,6 +1,6 @@
 # Hangout
 
-Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~870 lines.
+Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~1k lines.
 
 You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or anyone, if you flip public mode — can see it. Update and read from a browser, from Claude on web/phone, or from `curl`. That's it.
 
@@ -80,7 +80,7 @@ A friend lost their bookmark or screenshot of their token? Mint them a new one:
 curl "https://<your-worker>/rotate?s=YOUR_BOOTSTRAP_SECRET&u=<their-username>"
 ```
 
-The endpoint prints a fresh token and a new `/dashboard?u=…&t=…` URL. Send that URL to them — they can re-bookmark it. The old token immediately stops working.
+The endpoint prints a fresh token and a new `/dashboard?u=…&nonce=…` URL. Send that URL to them — they can re-bookmark it. The old token immediately stops working.
 
 Only the worker owner (you, the holder of `BOOTSTRAP_SECRET`) can call `/rotate`, so you're the recovery authority for everyone you invited. There's no email-based reset — that's the deliberate tradeoff for keeping the data model schema-free.
 
@@ -111,21 +111,21 @@ All GET. Plain-text responses except HTML pages.
 | Endpoint | Purpose |
 |---|---|
 | `/` | Landing + login form |
-| `/dashboard?u=&t=` | HTML dashboard |
-| `/set?u=&t=&loc=&hours=` | Set my location |
-| `/clear?u=&t=` | Clear my location |
-| `/me?u=&t=` | My current state |
-| `/u/<name>?as=&t=` | View someone's location (or public) |
-| `/allow?u=&t=&friend=` | Add to my allowlist |
-| `/disallow?u=&t=&friend=` | Remove from my allowlist |
-| `/public?u=&t=&on=1\|0` | Toggle public mode |
-| `/silent?u=&t=` | Clear location + turn public off in one call |
-| `/tz?u=&t=&tz=<IANA>` | Set my timezone for time formatting |
-| `/delete?u=&t=&confirm=yes` | Permanently delete my account (cascades through everyone's allowlist) |
-| `/invite?u=&t=` | Generate single-use invite link (7-day expiry) |
+| `/dashboard?u=&nonce=` | HTML dashboard |
+| `/set?u=&nonce=&loc=&hours=` | Set my location |
+| `/clear?u=&nonce=` | Clear my location |
+| `/me?u=&nonce=` | My current state |
+| `/u/<name>?as=&nonce=` | View someone's location (or public) |
+| `/allow?u=&nonce=&friend=` | Add to my allowlist |
+| `/disallow?u=&nonce=&friend=` | Remove from my allowlist |
+| `/public?u=&nonce=&on=1\|0` | Toggle public mode |
+| `/silent?u=&nonce=` | Clear location + turn public off in one call |
+| `/tz?u=&nonce=&tz=<IANA>` | Set my timezone for time formatting |
+| `/delete?u=&nonce=&confirm=yes` | Permanently delete my account (cascades through everyone's allowlist) |
+| `/invite?u=&nonce=` | Generate single-use invite link (7-day expiry) |
 | `/join?invite=` | Friend's signup page |
 | `/signup?invite=&u=` | Claim a username |
-| `/claude?u=&t=` | Claude/ChatGPT setup snippet — HTML page with one-click copy button + install instructions |
+| `/claude?u=&nonce=` | Claude/ChatGPT setup snippet — HTML page with one-click copy button + install instructions |
 | `/bootstrap?s=&u=` | One-time admin user creation |
 | `/rotate?s=&u=` | Admin token rotation (recovery) |
 | `/lineage?s=` | Admin: print the invite graph as a text tree (roots = depth-0 users, edges = consumed invites, pending listed separately) |
