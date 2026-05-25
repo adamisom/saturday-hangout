@@ -49,6 +49,8 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 
 ### Dashboard
 
+**Note on response shapes for write actions** (`/set`, `/clear`, `/silent`, `/allow`, `/disallow`, `/public`, `/tz`): when called from the dashboard's forms/links, these 303-redirect back to the dashboard (so you stay in context). When called directly via curl/Claude (no `&return=dashboard` in the URL), they return plain text as before. Tests that click dashboard buttons expect re-render; tests that curl expect plain text.
+
 - [ ] **1.6** Visit `BASE/dashboard?u=adam&t=WRONG`.
   Expect: "Invalid login" page (HTTP 401).
 - [ ] **1.7** Visit `BASE/dashboard?u=adam&t=<ADAM_TOKEN>`.
@@ -68,9 +70,9 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 ### Set / read own location
 
 - [ ] **1.8** From the dashboard form, set place = `Pershing Cafe`, hours = `2`. Submit.
-  Expect: plain-text `OK. Location set: Pershing Cafe (2h, until <clock> CT).`
-- [ ] **1.9** Click your browser's Back arrow → land on dashboard.
-  Expect: top section now reads **Pershing Cafe** with "1h 59m left (until <clock>)".
+  Expect: **dashboard re-renders in place** (303 redirect back to `/dashboard?u=&t=`). The "Where I am" section now reads **Pershing Cafe** with "1h 59m left (until <clock>)". No plain-text OK page — the form includes a hidden `&return=dashboard` that triggers the redirect.
+- [ ] **1.9** Verify via curl: `BASE/me?u=adam&t=<ADAM_TOKEN>`.
+  Expect: `Location: Pershing Cafe (1h 59m left, until <clock> CDT)` — confirms the KV state matches what the dashboard showed.
 - [ ] **1.10** Visit `BASE/me?u=adam&t=<ADAM_TOKEN>`.
   Expect: five lines — Username, Public mode, Timezone (default `America/Chicago`), Allowlist, Location. Location string matches what you set in 1.8.
 
@@ -79,18 +81,18 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 - [ ] **1.11** Open `BASE/u/adam` in an Incognito window (no auth).
   Expect: `adam's location is not shared with you.` (HTTP 403).
 - [ ] **1.12** Back in dashboard, click "Turn on" under Public mode.
-  Expect: plain text `OK. Public mode: ON.`
+  Expect: dashboard re-renders (303 redirect); Public mode now shows "ON" and the button reads "Turn off". No plain-text OK page.
 - [ ] **1.13** Reload the Incognito `BASE/u/adam`.
   Expect: `adam is at Pershing Cafe (...).` (HTTP 200).
-- [ ] **1.14** Reload dashboard → click "Turn off."
-  Expect: `OK. Public mode: OFF.`
+- [ ] **1.14** Click "Turn off."
+  Expect: dashboard re-renders with Public mode "OFF" and button back to "Turn on".
 - [ ] **1.15** Reload Incognito `BASE/u/adam`.
   Expect: back to "not shared".
 
 ### Clear
 
-- [ ] **1.16** Reload dashboard → click "Clear."
-  Expect: `OK. Location cleared.` Back-button shows "No active location."
+- [ ] **1.16** Click "Clear" from the dashboard (the secondary button next to Update location).
+  Expect: dashboard re-renders with "No active location." in the Where-I-am section.
 - [ ] **1.17** `BASE/me?u=adam&t=<ADAM_TOKEN>` → `Location: (none)`.
 
 ---
@@ -164,7 +166,7 @@ You'll paste different dashboard URLs into each. No login state to manage — th
 ### Disallow
 
 - [ ] **3.6** Browser A: dashboard → next to "sanya" in allowlist, click `[remove]`.
-  Expect: `OK. sanya can no longer see your location.`
+  Expect: dashboard re-renders with sanya removed from the Allowlist. (No plain-text OK page — `[remove]` link includes `&return=dashboard`.)
 - [ ] **3.7** Browser B: reload dashboard.
   Expect: **adam disappears from friends list entirely** (since sanya is no longer in adam's allowlist AND adam isn't public, sanya can no longer see adam's record).
 - [ ] **3.8** `BASE/u/adam?as=sanya&t=<SANYA_TOKEN>`.
@@ -256,7 +258,9 @@ This proves KV state survives Worker re-deploys (it does — KV is the storage l
 - [ ] **7.10** `BASE/u/Sanya?as=adam&t=<ADAM_TOKEN>` (mixed case) → works (server lowercases target).
 - [ ] **7.11** `BASE/u/?as=adam&t=<ADAM_TOKEN>` (empty target) → 404 Not found.
 - [ ] **7.12** `BASE/allow?u=adam&t=<ADAM_TOKEN>` (no friend param) → `Error: Missing friend.`
-- [ ] **7.13** `BASE/disallow?u=adam&t=<ADAM_TOKEN>&friend=ghost` (non-allowlisted target) → succeeds idempotently with `OK. ghost can no longer see your location.`
+- [ ] **7.12b** `BASE/allow?u=adam&t=<ADAM_TOKEN>&friend=does-not-exist` (unknown user) → `Error: No such user: does-not-exist.` (HTTP 404). Allowlist isn't modified. *Disclosing existence is fine — endpoint is auth-gated; only invited users have a token to call it.*
+- [ ] **7.12c** `BASE/allow?u=adam&t=<ADAM_TOKEN>&friend=adam` (self) → `Error: You can't add yourself to your own allowlist.` (HTTP 400). Self-view doesn't need this — `viewUser` already lets you see your own location.
+- [ ] **7.13** `BASE/disallow?u=adam&t=<ADAM_TOKEN>&friend=ghost` (non-allowlisted target) → succeeds idempotently with `OK. ghost can no longer see your location.` *(Disallow stays lenient — removing a name that isn't there is a no-op, not an error.)*
 
 ### XSS / HTML escaping
 

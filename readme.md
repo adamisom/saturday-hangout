@@ -1,6 +1,6 @@
 # Hangout
 
-Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~750 lines.
+Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~800 lines.
 
 You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or anyone, if you flip public mode — can see it. Update and read from a browser, from Claude on web/phone, or from `curl`. That's it.
 
@@ -20,6 +20,7 @@ For the request-flow diagram, module breakdown, data model, and design tradeoffs
 ## Setup
 
 ```sh
+git clone https://github.com/adamisom/saturday-hangout.git ~/dev/saturday-hangout
 cd ~/dev/saturday-hangout
 npm install
 ```
@@ -136,6 +137,7 @@ All GET. Plain-text responses except HTML pages.
 - Deleting your account is permanent and cascades — your username is removed from every other user's allowlist.
 - Time formatting uses your saved timezone (default `America/Chicago`). When you view a friend, the time renders in *your* tz, not theirs.
 - The dashboard auto-refreshes every 60 seconds so friends' updates appear without a manual reload.
+- Dashboard write actions keep you on the dashboard (no plain-text confirmation page). Programmatic callers (Claude, curl) still get plain text — unchanged.
 - KV is eventually consistent; in practice updates show up in <1s for everyone.
 - Token-in-URL means tokens appear in Cloudflare's access logs. Fine for a friends app; don't reuse the token anywhere else.
 - **Invite chain is capped at 3 hops.** The worker owner is depth 0; each invite hop adds 1. A user at depth 3 (worker owner → invitee → invitee → invitee) cannot generate further invites. This caps transitive trust — if a friend invites a friend who invites a bot, the bot can't recruit more bots.

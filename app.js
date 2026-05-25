@@ -45,10 +45,12 @@ const HTML_HEAD = `<!doctype html>
 
 const HTML_FOOT = `</body></html>`;
 
-function html(body, status = 200, refreshSeconds = 0) {
-  const head = refreshSeconds
-    ? HTML_HEAD.replace('</head>', `<meta http-equiv="refresh" content="${refreshSeconds}"></head>`)
-    : HTML_HEAD;
+function html(body, status = 200, refreshSeconds = 0, refreshUrl = '') {
+  let head = HTML_HEAD;
+  if (refreshSeconds) {
+    const content = refreshUrl ? `${refreshSeconds};url=${refreshUrl}` : String(refreshSeconds);
+    head = head.replace('</head>', `<meta http-equiv="refresh" content="${content}"></head>`);
+  }
   return new Response(head + body + HTML_FOOT, {
     status,
     headers: { 'content-type': 'text/html; charset=utf-8' },
@@ -66,10 +68,64 @@ function err(msg, status = 400) {
   return text(`Error: ${msg}\n`, status);
 }
 
+// Success response for dashboard write actions. With return=dashboard in the
+// query, 303-redirects to the dashboard so the user stays in the dashboard view
+// after clicking a form/link there. Otherwise returns plain text, same as
+// Claude/curl/programmatic clients have always expected.
+function actionResponse(message, q) {
+  if (q.get('return') === 'dashboard') {
+    const u = q.get('u');
+    const t = q.get('t');
+    const dashUrl = `/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(t)}`;
+    return new Response(null, { status: 303, headers: { 'Location': dashUrl } });
+  }
+  return text(message + '\n');
+}
+
+// Error counterpart to actionResponse — keeps the user on the dashboard for
+// validation/business-logic failures from form submissions. With return=dashboard,
+// 303-redirects to /dashboard?...&error=<msg> and the dashboard renders the error
+// as a banner. Without return=dashboard, falls through to plain-text err() so
+// curl/Claude get the same shape they always did. Auth errors don't go through
+// here — those callers don't have return context.
+function actionError(msg, q, status = 400) {
+  if (q.get('return') === 'dashboard') {
+    const u = q.get('u');
+    const t = q.get('t');
+    const dashUrl = `/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(t)}&error=${encodeURIComponent(msg)}`;
+    return new Response(null, { status: 303, headers: { 'Location': dashUrl } });
+  }
+  return err(msg, status);
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   }[c]));
+}
+
+// Inline JS for "Copy" buttons. Pages with a copy button include ${copyScript()}
+// once; each button calls copy(this, '<id-of-pre>', '<original label>').
+function copyScript() {
+  return `<script>
+    function copy(btn, targetId, label) {
+      var text = document.getElementById(targetId).innerText;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function(){
+          btn.textContent = 'Copied!';
+          setTimeout(function(){ btn.textContent = label; }, 2000);
+        }).catch(function(){
+          btn.textContent = 'Copy failed — select manually';
+        });
+      } else {
+        var range = document.createRange();
+        range.selectNode(document.getElementById(targetId));
+        window.getSelection().removeAllRanges();
+        window.getSelection().addRange(range);
+        btn.textContent = 'Selected — press ⌘-C';
+      }
+    }
+  </script>`;
 }
 
 function genToken() {
@@ -278,25 +334,34 @@ async function dashboard(env, q) {
     `).join('');
 
   const allowlist = (user.allowlist || []).length
-    ? (user.allowlist || []).map(n => `${escapeHtml(n)} <a href="/disallow?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&friend=${encodeURIComponent(n)}" class="small">[remove]</a>`).join(', ')
+    ? (user.allowlist || []).map(n => `${escapeHtml(n)} <a href="/disallow?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&friend=${encodeURIComponent(n)}&return=dashboard" class="small">[remove]</a>`).join(', ')
     : '<span class="small">empty</span>';
 
   // Auto-refresh every 60s so friends' updates show without a manual reload.
+  // The refresh URL drops any ?error=… so a flash-error banner fades after one
+  // refresh tick instead of sticking around.
+  const errorMsg = q.get('error');
+  const errorBanner = errorMsg
+    ? `<p style="color: #c00; padding: 0.6rem 0.75rem; background: #fee; border: 1px solid #fcc; border-radius: 4px;"><strong>${escapeHtml(errorMsg)}</strong></p>`
+    : '';
+  const cleanDashUrl = `/dashboard?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}`;
   return html(`
     <h1>Hi, ${escapeHtml(me)}</h1>
+    ${errorBanner}
 
     <h2>Where I am</h2>
     ${locBlock}
     <form action="/set" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
       <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="return" value="dashboard">
       <label>Place</label>
       <input type="text" name="loc" placeholder="Pershing Cafe" required>
       <label>Hours (default 2)</label>
       <input type="number" name="hours" step="0.25" min="0.25" max="24" placeholder="2">
       <p>
         <button>Update location</button>
-        ${loc ? `<a class="btn" href="/clear?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}"><button type="button" class="secondary">Clear</button></a>` : ''}
+        ${loc ? `<a class="btn" href="/clear?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&return=dashboard"><button type="button" class="secondary">Clear</button></a>` : ''}
       </p>
     </form>
 
@@ -310,6 +375,7 @@ async function dashboard(env, q) {
     <form action="/allow" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
       <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="return" value="dashboard">
       <div class="row">
         <input type="text" name="friend" placeholder="username">
         <button>Add</button>
@@ -324,7 +390,7 @@ async function dashboard(env, q) {
     <h2>Public mode</h2>
     <p class="small">Currently ${user.public ? '<strong>ON</strong> — anyone with your username can see you' : '<strong>OFF</strong> — only allowlisted friends'}.</p>
     <p>
-      <a class="btn" href="/public?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&on=${user.public ? '0' : '1'}">
+      <a class="btn" href="/public?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&on=${user.public ? '0' : '1'}&return=dashboard">
         <button class="secondary">Turn ${user.public ? 'off' : 'on'}</button>
       </a>
     </p>
@@ -333,7 +399,7 @@ async function dashboard(env, q) {
     <h2>Go silent</h2>
     <p class="small">Clear location + turn public off in one click.</p>
     <p>
-      <a class="btn" href="/silent?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}">
+      <a class="btn" href="/silent?u=${encodeURIComponent(me)}&t=${encodeURIComponent(tok)}&return=dashboard">
         <button class="secondary">Go silent</button>
       </a>
     </p>
@@ -348,6 +414,7 @@ async function dashboard(env, q) {
     <form action="/tz" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
       <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="return" value="dashboard">
       <div class="row">
         <input type="text" name="tz" placeholder="America/Los_Angeles">
         <button>Update</button>
@@ -363,7 +430,7 @@ async function dashboard(env, q) {
         <button class="secondary">Delete account…</button>
       </a>
     </p>
-  `, 200, 60);
+  `, 200, 60, cleanDashUrl);
 }
 
 // Writes use GET so chat assistants' web-fetch tools (which fire GETs reliably,
@@ -377,15 +444,15 @@ async function setLocation(env, q) {
   // this, a pasted multiline string lands a raw \n in the response body and any
   // line-based reader (e.g. Claude via WebFetch) misparses the 5-line contract.
   const loc = (q.get('loc') || '').replace(/[\r\n\t]/g, ' ').trim();
-  if (!loc) return err('Missing loc.');
-  if (loc.length > 200) return err('Location too long (200 char max).');
+  if (!loc) return actionError('Missing loc.', q);
+  if (loc.length > 200) return actionError('Location too long (200 char max).', q);
   let hours = parseFloat(q.get('hours') || '2');
   if (!isFinite(hours) || hours <= 0) hours = 2;
   if (hours > 24) hours = 24;
   const expiresAt = new Date(Date.now() + hours * 3600 * 1000).toISOString();
   user.location = { text: loc, expiresAt };
   await putUser(env, u, user);
-  return text(`OK. Location set: ${loc} (${hours}h, until ${fmtClock(expiresAt, user.tz)}).\n`);
+  return actionResponse(`OK. Location set: ${loc} (${hours}h, until ${fmtClock(expiresAt, user.tz)}).`, q);
 }
 
 async function clearLocation(env, q) {
@@ -394,7 +461,7 @@ async function clearLocation(env, q) {
   if (!user) return err('Invalid token.', 401);
   user.location = null;
   await putUser(env, u, user);
-  return text('OK. Location cleared.\n');
+  return actionResponse('OK. Location cleared.', q);
 }
 
 async function showMe(env, q) {
@@ -443,11 +510,18 @@ async function allow(env, q) {
   const user = await authUser(env, u, q.get('t'));
   if (!user) return err('Invalid token.', 401);
   const friend = (q.get('friend') || '').trim().toLowerCase();
-  if (!friend) return err('Missing friend.');
+  if (!friend) return actionError('Missing friend.', q);
+  // Self-add is meaningless (viewUser already lets you see your own location
+  // without being in your own allowlist) and confusing UX. Block it explicitly.
+  if (friend === u) return actionError("You can't add yourself to your own allowlist.", q);
+  // Reject unknown usernames so the allowlist can't accumulate ghost entries
+  // (e.g. typos). Disclosing existence is fine here — this endpoint is
+  // auth-gated, only allowlisted/invited users ever hit it.
+  if (!(await getUser(env, friend))) return actionError(`No such user: ${friend}.`, q, 404);
   user.allowlist = user.allowlist || [];
   if (!user.allowlist.includes(friend)) user.allowlist.push(friend);
   await putUser(env, u, user);
-  return text(`OK. ${friend} can now see your location.\n`);
+  return actionResponse(`OK. ${friend} can now see your location.`, q);
 }
 
 async function disallow(env, q) {
@@ -455,10 +529,10 @@ async function disallow(env, q) {
   const user = await authUser(env, u, q.get('t'));
   if (!user) return err('Invalid token.', 401);
   const friend = (q.get('friend') || '').trim().toLowerCase();
-  if (!friend) return err('Missing friend.');
+  if (!friend) return actionError('Missing friend.', q);
   user.allowlist = (user.allowlist || []).filter(x => x !== friend);
   await putUser(env, u, user);
-  return text(`OK. ${friend} can no longer see your location.\n`);
+  return actionResponse(`OK. ${friend} can no longer see your location.`, q);
 }
 
 async function setPublic(env, q) {
@@ -467,7 +541,7 @@ async function setPublic(env, q) {
   if (!user) return err('Invalid token.', 401);
   user.public = q.get('on') === '1';
   await putUser(env, u, user);
-  return text(`OK. Public mode: ${user.public ? 'ON' : 'OFF'}.\n`);
+  return actionResponse(`OK. Public mode: ${user.public ? 'ON' : 'OFF'}.`, q);
 }
 
 async function goSilent(env, q) {
@@ -477,7 +551,7 @@ async function goSilent(env, q) {
   user.location = null;
   user.public = false;
   await putUser(env, u, user);
-  return text(`OK. Going silent: location cleared, public mode OFF.\n`);
+  return actionResponse(`OK. Going silent: location cleared, public mode OFF.`, q);
 }
 
 async function setTz(env, q) {
@@ -485,15 +559,15 @@ async function setTz(env, q) {
   const user = await authUser(env, u, q.get('t'));
   if (!user) return err('Invalid token.', 401);
   const tz = (q.get('tz') || '').trim();
-  if (!tz) return err('Missing tz. Use an IANA name like America/Los_Angeles.');
+  if (!tz) return actionError('Missing tz. Use an IANA name like America/Los_Angeles.', q);
   try {
     new Intl.DateTimeFormat([], { timeZone: tz });
   } catch (e) {
-    return err(`Invalid timezone: ${tz}. Use an IANA name like America/Los_Angeles.`);
+    return actionError(`Invalid timezone: ${tz}. Use an IANA name like America/Los_Angeles.`, q);
   }
   user.tz = tz;
   await putUser(env, u, user);
-  return text(`OK. Timezone set to ${tz}.\n`);
+  return actionResponse(`OK. Timezone set to ${tz}.`, q);
 }
 
 // Invites carry a 7-day expiry so stale links can't be redeemed months later.
@@ -520,9 +594,11 @@ async function makeInvite(env, q, base) {
   return html(`
     <h1>Invite link</h1>
     <p>Send this to your friend:</p>
-    <pre>${escapeHtml(url)}</pre>
+    <pre id="invite-url">${escapeHtml(url)}</pre>
+    <p><button onclick="copy(this, 'invite-url', 'Copy link')">Copy link</button></p>
     <p class="small">Single-use. Expires ${escapeHtml(expiryDate)} (7 days from now).</p>
     <p><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(q.get('t'))}">Go to Dashboard</a></p>
+    ${copyScript()}
   `);
 }
 
@@ -627,13 +703,15 @@ async function signup(env, q, base) {
     <p>You and <strong>${escapeHtml(inv.from)}</strong> can now see each other.</p>
 
     <p>Your dashboard URL:</p>
-    <pre>${base}/dashboard?u=${escapeHtml(name)}&t=${escapeHtml(token)}</pre>
+    <pre id="dashboard-url">${base}/dashboard?u=${escapeHtml(name)}&t=${escapeHtml(token)}</pre>
+    <p><button onclick="copy(this, 'dashboard-url', 'Copy URL')">Copy URL</button></p>
 
     <p><a class="btn" href="/dashboard?u=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}"><button>Go to Dashboard</button></a></p>
 
     <hr>
     <p class="small">First time? Read <a href="https://github.com/adamisom/saturday-hangout/blob/main/for-friends.md" target="_blank" rel="noopener noreferrer">for-friends.md</a> — covers saving your URL, phone home-screen, the optional Claude/ChatGPT chat path, and troubleshooting.</p>
     <p class="small">Or jump straight to: <a href="/claude?u=${encodeURIComponent(name)}&t=${encodeURIComponent(token)}" target="_blank" rel="noopener noreferrer">get your Claude/ChatGPT setup snippet</a> (your token is pre-filled).</p>
+    ${copyScript()}
   `);
 }
 
@@ -663,32 +741,10 @@ async function claudeInstructions(env, q, base) {
     </ol>
     <p class="small"><strong>Keep this snippet private.</strong> Your token is in it — anyone who has the token can post as you. Treat it like a password.</p>
     <p class="small"><strong>Claude Code users (developers):</strong> the chat-snippet path above doesn't fit Claude Code well. Use the <code>~/.claude/commands/hangout.md</code> slash-command path instead — see for-friends.md, "Advanced — Claude Code" section.</p>
-    <p>
-      <button id="copy-btn" onclick="copySnippet()">Copy snippet</button>
-    </p>
+    <p><button onclick="copy(this, 'snippet', 'Copy snippet')">Copy snippet</button></p>
     <pre id="snippet">${escapeHtml(snippet)}</pre>
     <p class="small"><a href="/dashboard?u=${encodeURIComponent(u)}&t=${encodeURIComponent(t)}">Go to Dashboard</a></p>
-    <script>
-      function copySnippet() {
-        var text = document.getElementById('snippet').innerText;
-        var btn = document.getElementById('copy-btn');
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(function(){
-            btn.textContent = 'Copied!';
-            setTimeout(function(){ btn.textContent = 'Copy snippet'; }, 2000);
-          }).catch(function(){
-            btn.textContent = 'Copy failed — select and copy manually';
-          });
-        } else {
-          // Fallback: select the <pre> so user can ⌘-C
-          var range = document.createRange();
-          range.selectNode(document.getElementById('snippet'));
-          window.getSelection().removeAllRanges();
-          window.getSelection().addRange(range);
-          btn.textContent = 'Selected — press ⌘-C to copy';
-        }
-      }
-    </script>
+    ${copyScript()}
   `);
 }
 
