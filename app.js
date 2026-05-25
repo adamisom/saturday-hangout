@@ -263,6 +263,7 @@ export default {
       if (path === '/claude') return claudeInstructions(env, q, base);
       if (path === '/bootstrap') return bootstrap(env, q);
       if (path === '/rotate') return rotateToken(env, q);
+      if (path === '/lineage') return lineage(env, q);
       if (path === '/delete') return deleteAccount(env, q);
       if (path.startsWith('/u/')) {
         const rest = path.slice(3);
@@ -780,6 +781,68 @@ async function rotateToken(env, q) {
   user.token = newToken;
   await putUser(env, name, user);
   return text(`Token rotated for ${name}.\nNew token: ${newToken}\n\nSend them this URL: /dashboard?u=${name}&t=${newToken}\n`);
+}
+
+// Admin: print the invite graph as a text tree. Roots are depth-0 users
+// (bootstrap users that nobody invited). Edges come from consumed invite
+// records (from → usedBy). Pending invites listed separately. Deleted-user
+// references aren't decorated — names appear as recorded at invite time.
+async function lineage(env, q) {
+  const secret = q.get('s');
+  if (!env.BOOTSTRAP_SECRET) return err('BOOTSTRAP_SECRET not set on the worker.', 500);
+  if (!secret || secret !== env.BOOTSTRAP_SECRET) return err('Forbidden.', 403);
+  const invKeys = await env.STATE.list({ prefix: 'invite:' });
+  const invites = [];
+  for (const k of invKeys.keys) {
+    const raw = await env.STATE.get(k.name);
+    if (raw) invites.push({ code: k.name.slice(7), ...JSON.parse(raw) });
+  }
+  const consumed = invites.filter(i => i.used);
+  const pending = invites.filter(i => !i.used);
+  // Build inviter → [{ name, joined }] from consumed invites
+  const children = {};
+  for (const inv of consumed) {
+    (children[inv.from] = children[inv.from] || []).push({
+      name: inv.usedBy,
+      joined: (inv.usedAt || '').slice(0, 10),
+    });
+  }
+  // Roots: depth-0 users (include even if they haven't invited anyone yet)
+  const userKeys = await env.STATE.list({ prefix: 'user:' });
+  const roots = [];
+  for (const k of userKeys.keys) {
+    const raw = await env.STATE.get(k.name);
+    if (!raw) continue;
+    const u = JSON.parse(raw);
+    if ((u.depth ?? 0) === 0) roots.push(k.name.slice(5));
+  }
+  roots.sort();
+  function printSubtree(name, prefix, depth) {
+    const kids = (children[name] || []).sort((a, b) => a.name.localeCompare(b.name));
+    if (!kids.length) return '';
+    return kids.map((c, idx) => {
+      const isLast = idx === kids.length - 1;
+      const connector = isLast ? '└── ' : '├── ';
+      const childPrefix = isLast ? '    ' : '│   ';
+      const line = `${prefix}${connector}${c.name} (depth ${depth + 1}${c.joined ? `, joined ${c.joined}` : ''})`;
+      const sub = printSubtree(c.name, prefix + childPrefix, depth + 1);
+      return sub ? `${line}\n${sub}` : line;
+    }).join('\n');
+  }
+  const treeText = roots.length
+    ? roots.map(r => {
+        const sub = printSubtree(r, '', 0);
+        return sub ? `${r} (depth 0)\n${sub}` : `${r} (depth 0)`;
+      }).join('\n\n')
+    : '(no users)';
+  let pendingText = '';
+  if (pending.length) {
+    pendingText = '\n\nPending invites:\n' + pending
+      .sort((a, b) => a.from.localeCompare(b.from))
+      .map(p => `  ${p.code} from ${p.from} (created ${(p.createdAt || '').slice(0, 10)}, expires ${(p.expiresAt || '').slice(0, 10)})`)
+      .join('\n');
+  }
+  return text(`Invite lineage (${consumed.length} consumed, ${pending.length} pending):\n\n${treeText}${pendingText}\n`);
 }
 
 // Permanent. Cascades through every other user's allowlist before deleting the

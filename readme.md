@@ -1,6 +1,6 @@
 # Hangout
 
-Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~800 lines.
+Ad-hoc location sharing for friends. One Cloudflare Worker, one KV namespace, ~870 lines.
 
 You set a place ("Pershing Cafe", expires in 2h). Allowlisted friends — or anyone, if you flip public mode — can see it. Update and read from a browser, from Claude on web/phone, or from `curl`. That's it.
 
@@ -128,6 +128,7 @@ All GET. Plain-text responses except HTML pages.
 | `/claude?u=&t=` | Claude/ChatGPT setup snippet — HTML page with one-click copy button + install instructions |
 | `/bootstrap?s=&u=` | One-time admin user creation |
 | `/rotate?s=&u=` | Admin token rotation (recovery) |
+| `/lineage?s=` | Admin: print the invite graph as a text tree (roots = depth-0 users, edges = consumed invites, pending listed separately) |
 
 ## Notes
 
