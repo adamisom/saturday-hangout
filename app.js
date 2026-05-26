@@ -306,7 +306,7 @@ function landing() {
       <label>Username</label>
       <input type="text" name="u" required autocomplete="username">
       <label>Token</label>
-      <input type="text" name="t" required autocomplete="current-password">
+      <input type="text" name="nonce" required autocomplete="current-password">
       <p><button>Open dashboard</button></p>
     </form>
     <p class="small">No account? You need an invite link from a friend.</p>
@@ -390,7 +390,7 @@ async function dashboard(env, q) {
     ${locBlock}
     <form action="/set" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
-      <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="nonce" value="${escapeHtml(tok)}">
       <input type="hidden" name="return" value="dashboard">
       <label>Place</label>
       <input type="text" name="loc" placeholder="Pershing Cafe" required>
@@ -411,7 +411,7 @@ async function dashboard(env, q) {
     <p>${allowlist}</p>
     <form action="/allow" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
-      <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="nonce" value="${escapeHtml(tok)}">
       <input type="hidden" name="return" value="dashboard">
       <div class="row">
         <input type="text" name="friend" placeholder="username">
@@ -433,7 +433,7 @@ async function dashboard(env, q) {
     ${presetsHtml}
     <form action="/save-preset" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
-      <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="nonce" value="${escapeHtml(tok)}">
       <input type="hidden" name="return" value="dashboard">
       <label>Place</label>
       <input type="text" name="loc" placeholder="123 Main St" required>
@@ -465,7 +465,7 @@ async function dashboard(env, q) {
     <p>Timezone: <strong>${escapeHtml(tz)}</strong></p>
     <form action="/tz" method="get">
       <input type="hidden" name="u" value="${escapeHtml(me)}">
-      <input type="hidden" name="t" value="${escapeHtml(tok)}">
+      <input type="hidden" name="nonce" value="${escapeHtml(tok)}">
       <input type="hidden" name="return" value="dashboard">
       <div class="row">
         <input type="text" name="tz" placeholder="America/Los_Angeles">
