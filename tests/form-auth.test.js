@@ -11,8 +11,11 @@ import { unstable_dev } from 'wrangler';
 let worker;
 let token;
 let friendToken;
+let U;        // tester username (random, to avoid clash with leftover local KV)
+let FRIEND;   // friend username (same)
 
 const SECRET = 'test-secret';
+const rand = () => Math.random().toString(36).slice(2, 8);
 
 before(async () => {
   worker = await unstable_dev('app.js', {
@@ -31,8 +34,10 @@ before(async () => {
     return m[1];
   };
 
-  token = await mint('tester');
-  friendToken = await mint('friend');
+  U = `t${rand()}`;
+  FRIEND = `f${rand()}`;
+  token = await mint(U);
+  friendToken = await mint(FRIEND);
 });
 
 after(async () => {
@@ -46,19 +51,19 @@ test('landing page login form uses name="nonce"', async () => {
 });
 
 test('dashboard HTML emits no name="t" in any form', async () => {
-  const html = await (await worker.fetch(`/dashboard?u=tester&nonce=${token}`)).text();
+  const html = await (await worker.fetch(`/dashboard?u=${U}&nonce=${token}`)).text();
   assert.doesNotMatch(html, /name="t"/, 'dashboard still emits name="t" in a form');
 });
 
 test('login form submission (form action=/dashboard) authenticates', async () => {
-  const res = await worker.fetch(`/dashboard?u=tester&nonce=${token}`);
+  const res = await worker.fetch(`/dashboard?u=${U}&nonce=${token}`);
   assert.equal(res.status, 200);
-  assert.match(await res.text(), /Hi, tester/);
+  assert.match(await res.text(), new RegExp(`Hi, ${U}`));
 });
 
 test('/set form submission redirects to dashboard (303), not 401', async () => {
   const res = await worker.fetch(
-    `/set?u=tester&nonce=${token}&loc=TestPlace&hours=1&return=dashboard`,
+    `/set?u=${U}&nonce=${token}&loc=TestPlace&hours=1&return=dashboard`,
     { redirect: 'manual' },
   );
   assert.equal(res.status, 303);
@@ -66,7 +71,7 @@ test('/set form submission redirects to dashboard (303), not 401', async () => {
 
 test('/allow form submission redirects to dashboard (303), not 401', async () => {
   const res = await worker.fetch(
-    `/allow?u=tester&nonce=${token}&friend=friend&return=dashboard`,
+    `/allow?u=${U}&nonce=${token}&friend=${FRIEND}&return=dashboard`,
     { redirect: 'manual' },
   );
   assert.equal(res.status, 303);
@@ -74,7 +79,7 @@ test('/allow form submission redirects to dashboard (303), not 401', async () =>
 
 test('/save-preset form submission redirects to dashboard (303), not 401', async () => {
   const res = await worker.fetch(
-    `/save-preset?u=tester&nonce=${token}&loc=Home&return=dashboard`,
+    `/save-preset?u=${U}&nonce=${token}&loc=Home&return=dashboard`,
     { redirect: 'manual' },
   );
   assert.equal(res.status, 303);
@@ -82,13 +87,13 @@ test('/save-preset form submission redirects to dashboard (303), not 401', async
 
 test('/tz form submission redirects to dashboard (303), not 401', async () => {
   const res = await worker.fetch(
-    `/tz?u=tester&nonce=${token}&tz=America/Los_Angeles&return=dashboard`,
+    `/tz?u=${U}&nonce=${token}&tz=America/Los_Angeles&return=dashboard`,
     { redirect: 'manual' },
   );
   assert.equal(res.status, 303);
 });
 
 test('regression: submitting with the old ?t= param fails 401', async () => {
-  const res = await worker.fetch(`/set?u=tester&t=${token}&loc=X&hours=1`);
+  const res = await worker.fetch(`/set?u=${U}&t=${token}&loc=X&hours=1`);
   assert.equal(res.status, 401);
 });
